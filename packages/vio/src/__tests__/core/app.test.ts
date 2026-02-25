@@ -116,6 +116,54 @@ describe('createApp', () => {
     expect(container.textContent).toBe('Page 2')
   })
 
+  it('reads initial route from location.hash on mount', () => {
+    window.location.hash = '#/page2'
+    const app = createApp({
+      root: '#app',
+      routes: [
+        { path: '/', component: App },
+        { path: '/page2', component: Page2 }
+      ]
+    })
+    app.mount()
+    expect(container.textContent).toBe('Page 2')
+    window.location.hash = ''
+  })
+
+  it('responds to hashchange events', () => {
+    const app = createApp({
+      root: '#app',
+      routes: [
+        { path: '/', component: App },
+        { path: '/page2', component: Page2 }
+      ]
+    })
+    app.mount()
+    expect(container.textContent).toBe('Hello')
+
+    window.location.hash = '#/page2'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    expect(container.textContent).toBe('Page 2')
+    window.location.hash = ''
+  })
+
+  it('cleans up hashchange listener on unmount of last component', () => {
+    const app = createApp({
+      root: '#app',
+      routes: [
+        { path: '/', component: App },
+        { path: '/page2', component: Page2 }
+      ]
+    })
+    app.mount()
+    const rootId = app.getComponentTree().id
+    app.removeComponent(rootId)
+
+    window.location.hash = '#/page2'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    window.location.hash = ''
+  })
+
   it('provides getComponentTree', () => {
     const app = createApp({ root: '#app', routes: [{ path: '/', component: App }] })
     app.mount()

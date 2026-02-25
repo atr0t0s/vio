@@ -40,15 +40,37 @@ export function createApp(config: AppConfig): VioApp {
   }
 
   let rootInstanceId: string | null = null
+  let hashCleanup: (() => void) | null = null
 
   return {
     mount() {
-      const path = '/'
+      const hash = window.location.hash
+      const path = hash ? hash.replace(/^#/, '') || '/' : '/'
+
       if (router) {
         const match = router.navigate(path)
         if (match) {
           const instance = renderer.mount(match.component)
           rootInstanceId = instance.id
+        }
+
+        const onHashChange = () => {
+          const newHash = window.location.hash
+          const newPath = newHash ? newHash.replace(/^#/, '') || '/' : '/'
+          const newMatch = router.navigate(newPath)
+          if (newMatch) {
+            if (rootInstanceId) {
+              renderer.unmount(rootInstanceId)
+            }
+            const instance = renderer.mount(newMatch.component)
+            rootInstanceId = instance.id
+          }
+        }
+
+        window.addEventListener('hashchange', onHashChange)
+        hashCleanup = () => {
+          window.removeEventListener('hashchange', onHashChange)
+          hashCleanup = null
         }
       } else if (config.routes && config.routes.length > 0) {
         const instance = renderer.mount(config.routes[0]!.component)
@@ -93,6 +115,9 @@ export function createApp(config: AppConfig): VioApp {
 
     removeComponent(instanceId) {
       renderer.unmount(instanceId)
+      if (instanceId === rootInstanceId && hashCleanup) {
+        hashCleanup()
+      }
     },
 
     getComponentTree() {
