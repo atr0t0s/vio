@@ -163,6 +163,14 @@ describe('createApp', () => {
     expect(container.textContent).toBe('')
   })
 
+  it('getEventHistory returns bus history', () => {
+    const app = createApp({ root: '#app', routes: [{ path: '/', component: App }] })
+    app.mount()
+    const history = app.getEventHistory()
+    expect(Array.isArray(history)).toBe(true)
+    expect(history.length).toBeGreaterThan(0)
+  })
+
   it('provides getComponentTree', () => {
     const app = createApp({ root: '#app', routes: [{ path: '/', component: App }] })
     app.mount()

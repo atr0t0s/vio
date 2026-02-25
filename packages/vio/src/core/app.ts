@@ -19,6 +19,7 @@ export interface VioApp {
   getComponentTree(): { id: string; name: string; state: Record<string, unknown>; children: any[] }
   navigate(path: string): void
   batch(ops: BatchOperation[]): void
+  getEventHistory(): { type: string; payload: Record<string, unknown>; timestamp: number }[]
 }
 
 export function createApp(config: AppConfig): VioApp {
@@ -169,6 +170,10 @@ export function createApp(config: AppConfig): VioApp {
         }
       }
       bus.emit('batch:end', { operations: ops.length })
+    },
+
+    getEventHistory() {
+      return bus.getHistory()
     }
   }
 }
