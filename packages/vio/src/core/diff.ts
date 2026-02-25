@@ -113,8 +113,7 @@ export function patch(element: HTMLElement, patches: PatchOp[]): void {
       case 'PROPS': {
         for (const [key, value] of Object.entries(p.added)) {
           if (key.startsWith('on') && typeof value === 'function') {
-            const eventName = key.slice(2).toLowerCase()
-            element.addEventListener(eventName, value as EventListener)
+            (element as any)[key.toLowerCase()] = value
           } else if (key === 'class') {
             element.className = String(value)
           } else if (value !== null && value !== undefined && value !== false) {
@@ -122,7 +121,9 @@ export function patch(element: HTMLElement, patches: PatchOp[]): void {
           }
         }
         for (const key of p.removed) {
-          if (key === 'class') {
+          if (key.startsWith('on')) {
+            (element as any)[key.toLowerCase()] = null
+          } else if (key === 'class') {
             element.className = ''
           } else {
             element.removeAttribute(key)

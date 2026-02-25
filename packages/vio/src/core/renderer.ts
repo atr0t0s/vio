@@ -13,6 +13,13 @@ export class Renderer {
   constructor(container: HTMLElement, bus: EventBus) {
     this.container = container
     this.bus = bus
+
+    // Re-render all mounted components when the global store changes
+    this.bus.on('store:change', () => {
+      for (const instance of this.instances.values()) {
+        this.rerender(instance)
+      }
+    })
   }
 
   mount(def: ComponentDef, parentEl?: HTMLElement): ComponentInstance {
@@ -110,7 +117,33 @@ export class Renderer {
   }
 
   private renderTree(def: ComponentDef, state: Record<string, unknown>): VioNodeDescriptor {
-    return def.render(state)
+    return this.resolveTree(def.render(state))
+  }
+
+  /** Recursively resolve ComponentDef tags into plain HTML descriptor trees. */
+  private resolveTree(desc: VioNodeDescriptor): VioNodeDescriptor {
+    // ComponentDef tag — call its render and resolve recursively
+    if (typeof desc.tag === 'object' && 'render' in desc.tag) {
+      const childDef = desc.tag as ComponentDef
+      const childState = { ...(childDef.state ?? {}), ...(desc.props ?? {}) }
+      return this.resolveTree(childDef.render(childState))
+    }
+
+    // String tag — resolve children recursively and strip empties
+    // so the virtual tree matches what createElementRecursive produces
+    if (desc.children) {
+      const resolvedChildren = desc.children
+        .filter(child => child !== null && child !== undefined && child !== false && child !== true && child !== '')
+        .map(child => {
+          if (child && typeof child === 'object' && 'tag' in child) {
+            return this.resolveTree(child)
+          }
+          return child
+        })
+      return { ...desc, children: resolvedChildren }
+    }
+
+    return desc
   }
 
   private createElementRecursive(desc: VioNodeDescriptor): HTMLElement | null {
@@ -122,7 +155,7 @@ export class Renderer {
       if (desc.props) {
         for (const [key, value] of Object.entries(desc.props)) {
           if (key.startsWith('on') && typeof value === 'function') {
-            el.addEventListener(key.slice(2).toLowerCase(), value as EventListener)
+            (el as any)[key.toLowerCase()] = value
           } else if (key === 'class') {
             el.className = String(value)
           } else if (key === 'style' && typeof value === 'object' && value !== null) {

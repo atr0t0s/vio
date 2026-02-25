@@ -10,8 +10,7 @@ export function createElement(desc: VioNodeDescriptor): HTMLElement {
   if (desc.props) {
     for (const [key, value] of Object.entries(desc.props)) {
       if (key.startsWith('on') && typeof value === 'function') {
-        const eventName = key.slice(2).toLowerCase()
-        el.addEventListener(eventName, value as EventListener)
+        (el as any)[key.toLowerCase()] = value
       } else if (key === 'class') {
         el.className = String(value)
       } else if (key === 'style' && typeof value === 'object' && value !== null) {
