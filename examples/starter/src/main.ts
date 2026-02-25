@@ -1,5 +1,6 @@
 import { createApp, defineComponent } from 'vio'
 import type { VioApp } from 'vio'
+import { connectDevtools } from 'vio-devtools/client'
 
 // --- Helpers ---
 
@@ -293,3 +294,6 @@ const app = createApp({
 ;(window as any).vio = app
 
 app.mount()
+
+// Connect to DevTools MCP server (if running)
+connectDevtools(app)
