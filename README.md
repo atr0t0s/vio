@@ -1,43 +1,111 @@
-# Vio: A Micro Reactive JavaScript Framework
+# Vio
 
-Vio is a lightweight and reactive JavaScript framework designed for building dynamic user interfaces on the frontend. With its minimalistic approach, Vio empowers developers to create custom pages using templates and components, following a syntax inspired by Handlebars.
+An AI-agent-first frontend framework. Components are pure data structures. State is immutable. Everything is observable.
 
-## Features
+## Core Concepts
 
-- **Micro Framework**: Vio is designed to be minimalistic, allowing developers to focus on building their applications without unnecessary overhead.
-  
-- **Reactive Architecture**: Vio utilizes a reactive architecture, meaning that changes in data automatically propagate to the user interface, ensuring a seamless and responsive experience.
+**JSON-to-DOM rendering** — Components return `{ tag, props, children }` trees. No templates, no JSX.
 
-- **Template-based**: Developers can create reusable templates using a syntax similar to Handlebars, making it easy to structure UI components and maintain consistency across the application.
+```ts
+import { defineComponent } from 'vio'
 
-- **Component-based**: Vio encourages a component-based approach to UI development, allowing developers to encapsulate functionality and design into reusable components that can be easily composed to build complex interfaces.
+const Greeting = defineComponent({
+  name: 'Greeting',
+  state: { name: 'World' },
+  render(state) {
+    return {
+      tag: 'h1',
+      children: [`Hello, ${state.name}!`]
+    }
+  }
+})
+```
 
-## Getting Started
+**Immutable state** — State changes produce new objects. The virtual DOM diff determines what to update.
 
-To get started with Vio, follow these steps:
+**Observable everything** — All mutations flow through an event bus. Serializable, loggable, replayable.
 
-1. Clone this repository to your local machine:
+## Quick Start
 
-    ```bash
-    git clone https://github.com/0xAtrotos/vio-boilerplate.git
-    ```
+```ts
+import { createApp, defineComponent } from 'vio'
 
-2. Navigate to the `vio` folder containing the framework implementation.
+const App = defineComponent({
+  name: 'App',
+  state: { count: 0 },
+  render(state) {
+    return {
+      tag: 'div',
+      children: [
+        { tag: 'h1', children: [`Count: ${state.count}`] },
+        { tag: 'button', props: { onClick: () => {} }, children: ['Increment'] }
+      ]
+    }
+  }
+})
 
-3. Explore the example project under the `src` folder to understand how to use Vio in your own projects.
+const app = createApp({
+  root: '#app',
+  routes: [{ path: '/', component: App }],
+  store: {
+    state: { theme: 'light' },
+    actions: {
+      toggleTheme(s) {
+        return { ...s, theme: s.theme === 'light' ? 'dark' : 'light' }
+      }
+    }
+  }
+})
 
-## Usage
+app.mount()
+```
 
-This is a work in progress. More coming soon, in the meantime reach out to me on X.
+## Runtime API
 
-## Contributing
+AI agents can control a running Vio app programmatically:
 
-Contributions to Vio are welcome! If you have any ideas, bug fixes, or enhancements, feel free to open an issue or submit a pull request. Please refer to the [contribution guidelines](CONTRIBUTING.md) before making any contributions.
+```ts
+// State management
+app.setState(componentId, { count: 5 })
+app.getState(componentId)
+
+// Global store
+app.dispatch('toggleTheme')
+app.getStore()
+
+// Navigation
+app.navigate('/dashboard')
+
+// Introspection
+app.getComponentTree()
+
+// Event observation
+app.on('state:change', (event) => console.log(event))
+
+// Batch operations
+app.batch([
+  { action: 'setState', target: id, payload: { count: 10 } },
+  { action: 'dispatch', payload: { action: 'toggleTheme' } }
+])
+```
+
+## Batteries Included
+
+| Module | Import | Description |
+|--------|--------|-------------|
+| Store | `Store` | Global state with pure action reducers |
+| Router | `Router` | Path matching, params, guards |
+| HTTP | `HttpClient` | Fetch wrapper with interceptors |
+| Forms | `createForm` | Form state, validation, node generation |
+
+## Why AI-Agent-First?
+
+1. **JSON-native** — `{ tag, props, children }`. Any LLM can produce valid component trees.
+2. **Pure renders** — `render(state) → tree`. Same input, same output. Deterministic.
+3. **Full introspection** — Agents can "see" the entire UI as JSON via `getComponentTree()`.
+4. **Full control** — `setState`, `dispatch`, `navigate`, `batch` — all programmatic.
+5. **Serializable** — Components, state, events are all plain JSON. Works over any transport.
 
 ## License
 
-Vio is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
-
----
-
-Feel free to customize and expand upon this README to suit your project's specific needs!
+MIT
