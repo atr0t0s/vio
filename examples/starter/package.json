@@ -1,0 +1,16 @@
+{
+  "name": "vio-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vio": "file:../../packages/vio"
+  },
+  "devDependencies": {
+    "vite": "^6.1.0",
+    "typescript": "^5.7.0"
+  }
+}
