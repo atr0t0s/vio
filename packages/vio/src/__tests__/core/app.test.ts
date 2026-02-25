@@ -22,6 +22,7 @@ describe('createApp', () => {
   let container: HTMLElement
 
   beforeEach(() => {
+    window.location.hash = ''
     container = document.createElement('div')
     container.id = 'app'
     document.body.innerHTML = ''
@@ -127,7 +128,6 @@ describe('createApp', () => {
     })
     app.mount()
     expect(container.textContent).toBe('Page 2')
-    window.location.hash = ''
   })
 
   it('responds to hashchange events', () => {
@@ -144,7 +144,6 @@ describe('createApp', () => {
     window.location.hash = '#/page2'
     window.dispatchEvent(new HashChangeEvent('hashchange'))
     expect(container.textContent).toBe('Page 2')
-    window.location.hash = ''
   })
 
   it('cleans up hashchange listener on unmount of last component', () => {
@@ -161,7 +160,7 @@ describe('createApp', () => {
 
     window.location.hash = '#/page2'
     window.dispatchEvent(new HashChangeEvent('hashchange'))
-    window.location.hash = ''
+    expect(container.textContent).toBe('')
   })
 
   it('provides getComponentTree', () => {

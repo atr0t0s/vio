@@ -41,6 +41,19 @@ export function createApp(config: AppConfig): VioApp {
 
   let rootInstanceId: string | null = null
   let hashCleanup: (() => void) | null = null
+  let isProgrammaticHash = false
+
+  function navigateTo(path: string): void {
+    if (!router) return
+    const match = router.navigate(path)
+    if (match) {
+      if (rootInstanceId) {
+        renderer.unmount(rootInstanceId)
+      }
+      const instance = renderer.mount(match.component)
+      rootInstanceId = instance.id
+    }
+  }
 
   return {
     mount() {
@@ -48,23 +61,16 @@ export function createApp(config: AppConfig): VioApp {
       const path = hash ? hash.replace(/^#/, '') || '/' : '/'
 
       if (router) {
-        const match = router.navigate(path)
-        if (match) {
-          const instance = renderer.mount(match.component)
-          rootInstanceId = instance.id
-        }
+        navigateTo(path)
 
         const onHashChange = () => {
+          if (isProgrammaticHash) {
+            isProgrammaticHash = false
+            return
+          }
           const newHash = window.location.hash
           const newPath = newHash ? newHash.replace(/^#/, '') || '/' : '/'
-          const newMatch = router.navigate(newPath)
-          if (newMatch) {
-            if (rootInstanceId) {
-              renderer.unmount(rootInstanceId)
-            }
-            const instance = renderer.mount(newMatch.component)
-            rootInstanceId = instance.id
-          }
+          navigateTo(newPath)
         }
 
         window.addEventListener('hashchange', onHashChange)
@@ -134,14 +140,9 @@ export function createApp(config: AppConfig): VioApp {
 
     navigate(path) {
       if (!router) throw new Error('No routes configured')
-      const match = router.navigate(path)
-      if (match) {
-        if (rootInstanceId) {
-          renderer.unmount(rootInstanceId)
-        }
-        const instance = renderer.mount(match.component)
-        rootInstanceId = instance.id
-      }
+      isProgrammaticHash = true
+      window.location.hash = '#' + path
+      navigateTo(path)
     },
 
     batch(ops) {
@@ -162,12 +163,7 @@ export function createApp(config: AppConfig): VioApp {
             break
           case 'navigate':
             if (router && op.target) {
-              const match = router.navigate(op.target)
-              if (match && rootInstanceId) {
-                renderer.unmount(rootInstanceId)
-                const instance = renderer.mount(match.component)
-                rootInstanceId = instance.id
-              }
+              navigateTo(op.target)
             }
             break
         }
