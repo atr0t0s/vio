@@ -33,3 +33,7 @@ export { Router } from './router/router'
 
 // HTTP
 export { HttpClient } from './http/client'
+
+// Forms
+export { createForm } from './forms/form'
+export type { VioForm } from './forms/form'
