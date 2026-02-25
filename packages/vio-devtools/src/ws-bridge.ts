@@ -30,7 +30,7 @@ export class WsBridge {
       this.wss = new WebSocketServer({ port: this.port })
       this.wss.on('listening', () => {
         const addr = this.wss!.address()
-        const port = typeof addr === 'object' ? addr.port : this.port
+        const port = typeof addr === 'object' && addr !== null ? addr.port : this.port
         resolve(port)
       })
       this.wss.on('error', reject)

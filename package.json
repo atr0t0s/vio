@@ -4,7 +4,7 @@
   "workspaces": ["packages/*", "examples/*"],
   "scripts": {
     "dev": "npm run dev --workspace=examples/starter",
-    "build": "npm run build --workspace=packages/vio",
-    "test": "npm run test --workspace=packages/vio"
+    "build": "npm run build --workspace=packages/vio && npm run build --workspace=packages/vio-devtools",
+    "test": "npm run test --workspace=packages/vio && npm run test --workspace=packages/vio-devtools"
   }
 }

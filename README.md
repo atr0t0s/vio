@@ -98,6 +98,55 @@ app.batch([
 | HTTP | `HttpClient` | Fetch wrapper with interceptors |
 | Forms | `createForm` | Form state, validation, node generation |
 
+## Devtools (MCP)
+
+`vio-devtools` is a companion package that exposes a running Vio app to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io). An MCP-capable client (Claude Code, Cursor, etc.) can read state, dispatch actions, navigate routes, and inspect the component tree — all from the terminal.
+
+**Architecture:** MCP Server (stdio) ↔ WebSocket Bridge ↔ Browser Client
+
+### Setup
+
+1. **Browser side** — connect the devtools client in your app entry:
+
+```ts
+import { connectDevtools } from 'vio-devtools/client'
+
+const app = createApp({ /* ... */ })
+app.mount()
+connectDevtools(app)
+```
+
+2. **MCP config** — add to your `.mcp.json` (or Claude Code settings):
+
+```json
+{
+  "mcpServers": {
+    "vio-devtools": {
+      "command": "node",
+      "args": ["./packages/vio-devtools/dist/cli.js"]
+    }
+  }
+}
+```
+
+3. **Build** — `npm run build` from the workspace root.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `vio_get_state` | Get component local state by instance ID |
+| `vio_set_state` | Merge partial state into a component |
+| `vio_get_store` | Read global store state |
+| `vio_dispatch` | Dispatch a store action |
+| `vio_navigate` | Navigate to a route |
+| `vio_get_component_tree` | Full component tree with IDs and state |
+| `vio_get_registered_components` | List all registered component names |
+| `vio_remove_component` | Unmount a component by instance ID |
+| `vio_batch` | Execute multiple operations atomically |
+| `vio_emit` | Emit an event on the event bus |
+| `vio_get_event_history` | Get recent event bus history |
+
 ## Why AI-Agent-First?
 
 1. **JSON-native** — `{ tag, props, children }`. Any LLM can produce valid component trees.
@@ -105,6 +154,7 @@ app.batch([
 3. **Full introspection** — Agents can "see" the entire UI as JSON via `getComponentTree()`.
 4. **Full control** — `setState`, `dispatch`, `navigate`, `batch` — all programmatic.
 5. **Serializable** — Components, state, events are all plain JSON. Works over any transport.
+6. **MCP-ready** — Connect `vio-devtools` and any MCP client can control your app live.
 
 ## License
 

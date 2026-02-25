@@ -42,9 +42,17 @@ const METHOD_MAP: Record<string, MethodHandler> = {
   getEventHistory: (app) => app.getEventHistory()
 }
 
-export function connectDevtools(app: VioAppLike, options?: { port?: number }): DevtoolsConnection {
+export function connectDevtools(app: VioAppLike, options?: { port?: number; onError?: (err: Event) => void }): DevtoolsConnection {
   const port = options?.port ?? DEFAULT_PORT
   const ws = new WebSocket(`ws://localhost:${port}`)
+
+  ws.onerror = (err) => {
+    if (options?.onError) {
+      options.onError(err)
+    } else {
+      console.warn('[vio-devtools] WebSocket error — is the devtools server running?')
+    }
+  }
 
   ws.onmessage = (event: MessageEvent | { data: string }) => {
     const data = typeof event === 'object' && 'data' in event ? event.data : event

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vio-devtools": {
+      "command": "node",
+      "args": ["./packages/vio-devtools/dist/cli.js"],
+      "env": {
+        "VIO_DEVTOOLS_PORT": "3100"
+      }
+    }
+  }
+}
