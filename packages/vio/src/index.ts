@@ -30,3 +30,6 @@ export { Store } from './reactivity/store'
 
 // Router
 export { Router } from './router/router'
+
+// HTTP
+export { HttpClient } from './http/client'
