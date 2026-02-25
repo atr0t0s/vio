@@ -3,17 +3,132 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vio Starter</title>
+  <title>Vio Todo</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-    h1 { color: #333; }
-    .counter { padding: 1rem; border: 1px solid #ddd; border-radius: 8px; margin: 1rem 0; }
-    button { padding: 0.5rem 1rem; border: 1px solid #333; border-radius: 4px; cursor: pointer; margin: 0.25rem; }
-    button:hover { background: #333; color: white; }
-    nav a { margin-right: 1rem; color: #0066cc; }
-    .todo-item { padding: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; }
-    .todo-item.done { text-decoration: line-through; opacity: 0.6; }
-    input[type="text"] { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      min-height: 100vh;
+    }
+    .app {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 300;
+      text-align: center;
+      margin-bottom: 1.5rem;
+      color: #b83f45;
+    }
+    .input-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .input-row input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .input-row input:focus { border-color: #b83f45; }
+    .input-row button {
+      padding: 0.75rem 1.25rem;
+      background: #b83f45;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    .input-row button:hover { background: #a33039; }
+    nav {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1rem;
+      background: white;
+      border-radius: 6px;
+      padding: 0.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    nav a {
+      flex: 1;
+      text-align: center;
+      padding: 0.5rem;
+      text-decoration: none;
+      color: #666;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+    }
+    nav a:hover { color: #333; }
+    nav a.active { background: #b83f45; color: white; }
+    .todo-list {
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .todo-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #f0f0f0;
+      gap: 0.75rem;
+    }
+    .todo-item:last-child { border-bottom: none; }
+    .todo-item .toggle {
+      width: 22px; height: 22px;
+      border: 2px solid #ddd;
+      border-radius: 50%;
+      background: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 0.75rem;
+      color: transparent;
+      padding: 0;
+    }
+    .todo-item .toggle.done {
+      border-color: #5dc2af;
+      color: #5dc2af;
+    }
+    .todo-item .text { flex: 1; font-size: 0.95rem; }
+    .todo-item .text.done {
+      text-decoration: line-through;
+      color: #aaa;
+    }
+    .todo-item .delete {
+      background: none;
+      border: none;
+      color: #ccc;
+      font-size: 1.25rem;
+      cursor: pointer;
+      padding: 0 0.25rem;
+      line-height: 1;
+    }
+    .todo-item .delete:hover { color: #b83f45; }
+    .footer {
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      color: #999;
+      text-align: center;
+    }
+    .empty {
+      padding: 2rem;
+      text-align: center;
+      color: #999;
+      font-size: 0.95rem;
+    }
   </style>
 </head>
 <body>
