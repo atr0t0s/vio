@@ -1,4 +1,18 @@
 import { createApp, defineComponent } from 'vio'
+import type { VioApp } from 'vio'
+
+// --- Helpers ---
+
+function getApp(): VioApp {
+  return (window as any).vio as VioApp
+}
+
+function currentFilter(): string {
+  const hash = window.location.hash
+  if (hash === '#/active') return 'active'
+  if (hash === '#/completed') return 'completed'
+  return 'all'
+}
 
 // --- Types ---
 
@@ -26,17 +40,15 @@ const TodoInput = defineComponent({
           props: {
             type: 'text',
             placeholder: 'What needs to be done?',
-            value: (window as any).__vioInputValue || '',
-            oninput: (e: Event) => {
-              (window as any).__vioInputValue = (e.target as HTMLInputElement).value
-            },
+            // Workaround: Vio doesn't have controlled inputs yet, so we
+            // read the DOM value directly on submit instead of tracking state.
             onkeydown: (e: KeyboardEvent) => {
               if (e.key === 'Enter') {
-                const value = ((window as any).__vioInputValue || '').trim()
+                const input = e.target as HTMLInputElement
+                const value = input.value.trim()
                 if (value) {
-                  (window as any).vio.dispatch('addTodo', value);
-                  (window as any).__vioInputValue = '';
-                  (e.target as HTMLInputElement).value = ''
+                  getApp().dispatch('addTodo', value)
+                  input.value = ''
                 }
               }
             }
@@ -47,12 +59,13 @@ const TodoInput = defineComponent({
           tag: 'button',
           props: {
             onclick: () => {
-              const value = ((window as any).__vioInputValue || '').trim()
+              // Read DOM value directly since Vio lacks controlled inputs
+              const input = document.querySelector('.input-row input') as HTMLInputElement
+              if (!input) return
+              const value = input.value.trim()
               if (value) {
-                (window as any).vio.dispatch('addTodo', value);
-                (window as any).__vioInputValue = ''
-                const input = document.querySelector('.input-row input') as HTMLInputElement
-                if (input) input.value = ''
+                getApp().dispatch('addTodo', value)
+                input.value = ''
               }
             }
           },
@@ -66,11 +79,7 @@ const TodoInput = defineComponent({
 const Nav = defineComponent({
   name: 'Nav',
   render() {
-    const hash = window.location.hash
-    const current =
-      hash === '#/active' ? 'active'
-        : hash === '#/completed' ? 'completed'
-          : 'all'
+    const current = currentFilter()
 
     return {
       tag: 'nav',
@@ -107,7 +116,7 @@ const Nav = defineComponent({
 const TodoList = defineComponent({
   name: 'TodoList',
   render() {
-    const store = (window as any).vio.getStore()
+    const store = getApp().getStore()
     const todos = (store.todos || []) as Todo[]
     const filter = (store.filter || 'all') as string
 
@@ -152,7 +161,7 @@ const TodoList = defineComponent({
               props: {
                 class: `toggle${todo.completed ? ' done' : ''}`,
                 onclick: () => {
-                  (window as any).vio.dispatch('toggleTodo', todo.id)
+                  getApp().dispatch('toggleTodo', todo.id)
                 }
               },
               children: [todo.completed ? '\u2713' : '']
@@ -169,7 +178,7 @@ const TodoList = defineComponent({
               props: {
                 class: 'delete',
                 onclick: () => {
-                  (window as any).vio.dispatch('deleteTodo', todo.id)
+                  getApp().dispatch('deleteTodo', todo.id)
                 }
               },
               children: ['\u00d7']
@@ -206,7 +215,7 @@ const AppRoot = defineComponent({
       const saved = localStorage.getItem('vio-todos')
       if (saved) {
         const todos = JSON.parse(saved) as Todo[]
-        ;(window as any).vio.dispatch('loadTodos', todos)
+        ;getApp().dispatch('loadTodos', todos)
         // Update nextId to avoid collisions
         const maxId = todos.reduce((max, t) => Math.max(max, t.id), 0)
         if (maxId >= nextId) nextId = maxId + 1
@@ -216,27 +225,17 @@ const AppRoot = defineComponent({
     }
 
     // Set initial filter from hash
-    const hash = window.location.hash
-    const filter =
-      hash === '#/active' ? 'active'
-        : hash === '#/completed' ? 'completed'
-          : 'all'
-    ;(window as any).vio.dispatch('setFilter', filter)
+    getApp().dispatch('setFilter', currentFilter())
 
     // Persist todos to localStorage on store changes
-    const unsubscribe = (window as any).vio.on('store:change', () => {
-      const store = (window as any).vio.getStore()
+    const unsubscribe = getApp().on('store:change', () => {
+      const store = getApp().getStore()
       localStorage.setItem('vio-todos', JSON.stringify(store.todos))
     })
 
     // Listen for hashchange to update the filter
     const onHashChange = () => {
-      const h = window.location.hash
-      const f =
-        h === '#/active' ? 'active'
-          : h === '#/completed' ? 'completed'
-            : 'all'
-      ;(window as any).vio.dispatch('setFilter', f)
+      getApp().dispatch('setFilter', currentFilter())
     }
     window.addEventListener('hashchange', onHashChange)
 
