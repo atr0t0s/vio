@@ -1,6 +1,6 @@
-import { createApp, defineComponent } from 'vio'
-import type { VioApp } from 'vio'
-import { connectDevtools } from 'vio-devtools/client'
+import { createApp, defineComponent } from '@atrotos/vio'
+import type { VioApp } from '@atrotos/vio'
+import { connectDevtools } from '@atrotos/vio-devtools/client'
 
 // --- Helpers ---
 

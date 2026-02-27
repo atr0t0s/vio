@@ -7,7 +7,7 @@ An AI-agent-first frontend framework. Components are pure data structures. State
 **JSON-to-DOM rendering** — Components return `{ tag, props, children }` trees. No templates, no JSX.
 
 ```ts
-import { defineComponent } from 'vio'
+import { defineComponent } from '@atrotos/vio'
 
 const Greeting = defineComponent({
   name: 'Greeting',
@@ -28,7 +28,7 @@ const Greeting = defineComponent({
 ## Quick Start
 
 ```ts
-import { createApp, defineComponent } from 'vio'
+import { createApp, defineComponent } from '@atrotos/vio'
 
 const App = defineComponent({
   name: 'App',
@@ -100,7 +100,7 @@ app.batch([
 
 ## Devtools (MCP)
 
-`vio-devtools` is a companion package that exposes a running Vio app to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io). An MCP-capable client (Claude Code, Cursor, etc.) can read state, dispatch actions, navigate routes, and inspect the component tree — all from the terminal.
+`@atrotos/vio-devtools` is a companion package that exposes a running Vio app to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io). An MCP-capable client (Claude Code, Cursor, etc.) can read state, dispatch actions, navigate routes, and inspect the component tree — all from the terminal.
 
 **Architecture:** MCP Server (stdio) ↔ WebSocket Bridge ↔ Browser Client
 
@@ -109,7 +109,7 @@ app.batch([
 1. **Browser side** — connect the devtools client in your app entry:
 
 ```ts
-import { connectDevtools } from 'vio-devtools/client'
+import { connectDevtools } from '@atrotos/vio-devtools/client'
 
 const app = createApp({ /* ... */ })
 app.mount()
@@ -154,7 +154,7 @@ connectDevtools(app)
 3. **Full introspection** — Agents can "see" the entire UI as JSON via `getComponentTree()`.
 4. **Full control** — `setState`, `dispatch`, `navigate`, `batch` — all programmatic.
 5. **Serializable** — Components, state, events are all plain JSON. Works over any transport.
-6. **MCP-ready** — Connect `vio-devtools` and any MCP client can control your app live.
+6. **MCP-ready** — Connect `@atrotos/vio-devtools` and any MCP client can control your app live.
 
 ## License
 

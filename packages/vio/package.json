@@ -1,5 +1,5 @@
 {
-  "name": "vio",
+  "name": "@atrotos/vio",
   "version": "2.0.0",
   "type": "module",
   "main": "dist/vio.cjs",
