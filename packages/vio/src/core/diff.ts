@@ -1,5 +1,6 @@
 import type { VioNodeDescriptor, VioChild } from './types'
-import { createElement } from './node'
+import { createElement, buildChild } from './node'
+import { updateProps } from './dom'
 
 export type PatchOp =
   | { type: 'REPLACE'; newNode: VioNodeDescriptor }
@@ -13,6 +14,10 @@ export type ChildOp =
   | { type: 'PATCH'; index: number; patches: PatchOp[] }
   | { type: 'REPLACE_CHILD'; index: number; node: VioChild }
 
+/**
+ * Low-level index-based tree diff. Kept for direct use; the Renderer uses
+ * keyed reconciliation instead and does not go through this function.
+ */
 export function diff(oldNode: VioNodeDescriptor, newNode: VioNodeDescriptor): PatchOp[] {
   const patches: PatchOp[] = []
   if (oldNode === newNode) return patches
@@ -102,7 +107,7 @@ function isNode(child: VioChild): child is VioNodeDescriptor {
   return typeof child === 'object' && child !== null && 'tag' in child
 }
 
-export function patch(element: HTMLElement, patches: PatchOp[]): void {
+export function patch(element: Element, patches: PatchOp[]): void {
   for (const p of patches) {
     switch (p.type) {
       case 'REPLACE': {
@@ -111,24 +116,9 @@ export function patch(element: HTMLElement, patches: PatchOp[]): void {
         break
       }
       case 'PROPS': {
-        for (const [key, value] of Object.entries(p.added)) {
-          if (key.startsWith('on') && typeof value === 'function') {
-            (element as any)[key.toLowerCase()] = value
-          } else if (key === 'class') {
-            element.className = String(value)
-          } else if (value !== null && value !== undefined && value !== false) {
-            element.setAttribute(key, String(value))
-          }
-        }
-        for (const key of p.removed) {
-          if (key.startsWith('on')) {
-            (element as any)[key.toLowerCase()] = null
-          } else if (key === 'class') {
-            element.className = ''
-          } else {
-            element.removeAttribute(key)
-          }
-        }
+        const prev: Record<string, unknown> = {}
+        for (const key of p.removed) prev[key] = true
+        updateProps(element, p.added, prev)
         break
       }
       case 'CHILDREN': {
@@ -139,7 +129,7 @@ export function patch(element: HTMLElement, patches: PatchOp[]): void {
   }
 }
 
-function patchChildren(parent: HTMLElement, ops: ChildOp[]): void {
+function patchChildren(parent: Element, ops: ChildOp[]): void {
   // Process removals in reverse order to maintain indices
   const removals = ops.filter(op => op.type === 'REMOVE').sort((a, b) => (b as any).index - (a as any).index)
   for (const op of removals) {
@@ -173,7 +163,7 @@ function patchChildren(parent: HTMLElement, ops: ChildOp[]): void {
       }
       case 'PATCH': {
         const child = parent.childNodes[op.index]
-        if (child instanceof HTMLElement) {
+        if (child instanceof Element) {
           patch(child, op.patches)
         }
         break
@@ -185,17 +175,5 @@ function patchChildren(parent: HTMLElement, ops: ChildOp[]): void {
 }
 
 function createChildElement(child: VioChild): Node | null {
-  if (child === null || child === undefined || child === false || child === true || child === '') {
-    return null
-  }
-  if (typeof child === 'string') {
-    return document.createTextNode(child)
-  }
-  if (typeof child === 'number') {
-    return document.createTextNode(String(child))
-  }
-  if (typeof child === 'object' && 'tag' in child && typeof child.tag === 'string') {
-    return createElement(child)
-  }
-  return null
+  return buildChild(child, null)
 }

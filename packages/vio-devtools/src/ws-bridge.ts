@@ -1,10 +1,42 @@
 import { WebSocketServer, WebSocket } from 'ws'
+import type { IncomingMessage } from 'node:http'
+import { timingSafeEqual } from 'node:crypto'
 import { createRequest, isResponse, isErrorResponse } from './protocol.js'
 import type { WsResponse, WsErrorResponse } from './protocol.js'
 
 export interface WsBridgeOptions {
   port: number
   timeout?: number
+  /** Interface to bind. Defaults to loopback so the bridge is never reachable from the network. */
+  host?: string
+  /** When set, clients must connect with `?token=<token>`. */
+  token?: string
+  /** Extra browser origins allowed besides localhost/127.0.0.1/[::1]. */
+  allowedOrigins?: string[]
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+const MAX_PAYLOAD = 1024 * 1024
+
+/**
+ * Browsers always send Origin; any web page could otherwise drive the app via
+ * ws://localhost. Non-browser clients (no Origin) are local processes.
+ */
+export function isAllowedOrigin(origin: string | undefined, extra: string[] = []): boolean {
+  if (!origin) return true
+  if (extra.includes(origin)) return true
+  try {
+    return LOOPBACK_HOSTS.has(new URL(origin).hostname)
+  } catch {
+    return false
+  }
+}
+
+function tokenMatches(expected: string, url: string | undefined): boolean {
+  const given = new URL(url ?? '/', 'http://localhost').searchParams.get('token') ?? ''
+  const a = Buffer.from(given)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 interface PendingCall {
@@ -19,15 +51,28 @@ export class WsBridge {
   private pending = new Map<number, PendingCall>()
   private port: number
   private timeout: number
+  private options: WsBridgeOptions
 
   constructor(options: WsBridgeOptions) {
     this.port = options.port
     this.timeout = options.timeout ?? 5000
+    this.options = options
+  }
+
+  private verifyClient = (info: { origin: string; req: IncomingMessage }): boolean => {
+    if (!isAllowedOrigin(info.origin || undefined, this.options.allowedOrigins)) return false
+    if (this.options.token && !tokenMatches(this.options.token, info.req.url)) return false
+    return true
   }
 
   start(): Promise<number> {
     return new Promise((resolve, reject) => {
-      this.wss = new WebSocketServer({ port: this.port })
+      this.wss = new WebSocketServer({
+        port: this.port,
+        host: this.options.host ?? '127.0.0.1',
+        maxPayload: MAX_PAYLOAD,
+        verifyClient: this.verifyClient
+      })
       this.wss.on('listening', () => {
         const addr = this.wss!.address()
         const port = typeof addr === 'object' && addr !== null ? addr.port : this.port
@@ -40,7 +85,13 @@ export class WsBridge {
         }
         this.client = ws
         ws.on('message', (data) => {
-          const msg = JSON.parse(data.toString()) as WsResponse | WsErrorResponse
+          let msg: WsResponse | WsErrorResponse
+          try {
+            msg = JSON.parse(data.toString())
+          } catch {
+            return
+          }
+          if (!msg || typeof msg.id !== 'number') return
           const pending = this.pending.get(msg.id)
           if (!pending) return
           clearTimeout(pending.timer)

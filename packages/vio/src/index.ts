@@ -5,7 +5,8 @@ export { createApp } from './core/app'
 export type { VioApp } from './core/app'
 export { defineComponent, ComponentRegistry } from './core/component'
 export { createElement } from './core/node'
-export { Renderer } from './core/renderer'
+export { Renderer, VioError } from './core/renderer'
+export type { RendererOptions } from './core/renderer'
 export { diff, patch } from './core/diff'
 
 // Types
@@ -15,6 +16,10 @@ export type {
   ComponentDef,
   ComponentContext,
   ComponentInstance,
+  ComponentTreeNode,
+  RouteInfo,
+  RouteGuard,
+  RenderFunction,
   Route,
   StoreConfig,
   AppConfig,

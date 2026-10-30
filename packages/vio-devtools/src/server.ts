@@ -34,9 +34,11 @@ export function registerTools(server: McpServer, bridge: WsBridge): void {
 export async function startServer(): Promise<void> {
   const port = parseInt(process.env.VIO_DEVTOOLS_PORT ?? String(DEFAULT_PORT), 10)
 
-  const bridge = new WsBridge({ port })
+  const token = process.env.VIO_DEVTOOLS_TOKEN || undefined
+  const allowedOrigins = (process.env.VIO_DEVTOOLS_ORIGINS ?? '').split(',').map(o => o.trim()).filter(Boolean)
+  const bridge = new WsBridge({ port, token, allowedOrigins })
   const actualPort = await bridge.start()
-  console.error(`[vio-devtools] WebSocket server listening on port ${actualPort}`)
+  console.error(`[vio-devtools] WebSocket server listening on 127.0.0.1:${actualPort}${token ? ' (token required)' : ''}`)
 
   const server = new McpServer({
     name: 'vio-devtools',

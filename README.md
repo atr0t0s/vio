@@ -21,7 +21,7 @@ const Greeting = defineComponent({
 })
 ```
 
-**Immutable state** — State changes produce new objects. The virtual DOM diff determines what to update.
+**Immutable state** — State changes produce new objects. Keyed reconciliation determines what to update.
 
 **Observable everything** — All mutations flow through an event bus. Serializable, loggable, replayable.
 
@@ -33,12 +33,12 @@ import { createApp, defineComponent } from 'vio'
 const App = defineComponent({
   name: 'App',
   state: { count: 0 },
-  render(state) {
+  render(state, ctx) {
     return {
       tag: 'div',
       children: [
         { tag: 'h1', children: [`Count: ${state.count}`] },
-        { tag: 'button', props: { onClick: () => {} }, children: ['Increment'] }
+        { tag: 'button', props: { onClick: () => ctx.setState({ count: (state.count as number) + 1 }) }, children: ['Increment'] }
       ]
     }
   }
@@ -60,6 +60,25 @@ const app = createApp({
 app.mount()
 ```
 
+## Components
+
+`render(state, ctx)` returns a descriptor (or `null`). Nest components with `{ tag: Child, props, key }`; every nested component is a real instance with its own state and lifecycle.
+
+| `ctx` field | Purpose |
+|---|---|
+| `props` | Props from the parent; route components get `{ params, query }` |
+| `setState(patch)` / `getState()` | Local state |
+| `store` / `dispatch(action, payload)` | Global store snapshot and actions |
+| `route` | `{ path, params, query }` |
+| `getRef(name)` | Element tagged with `props: { ref: 'name' }` |
+| `emit(event, payload)` | Event bus |
+
+Props: `class` takes a string, array, or `{ name: bool }`; `style` takes a string or object; `value`/`checked` are controlled; `on*` takes functions; give list items a `key`. SVG works.
+
+**Safe by default:** `<script>`, `<base>`, `<meta>`, `<object>`, `<embed>`, `innerHTML`, `srcdoc`, string `on*` handlers, and `javascript:` URLs are dropped and reported as `security:blocked` events.
+
+**Routes:** guards return `true`, `false`, or a redirect path, and run even without a store. Unknown paths render nothing and emit `route:notfound`. Navigating between paths served by the same component keeps its state.
+
 ## Runtime API
 
 AI agents can control a running Vio app programmatically:
@@ -73,20 +92,24 @@ app.getState(componentId)
 app.dispatch('toggleTheme')
 app.getStore()
 
-// Navigation
+// Navigation (returns false when no route matches)
 app.navigate('/dashboard')
+app.getRoute()
 
-// Introspection
+// Introspection: nested tree with stable path IDs like "App/TodoList/Item[3]"
 app.getComponentTree()
 
 // Event observation
 app.on('state:change', (event) => console.log(event))
 
-// Batch operations
+// Batch: validates every op first, then applies them with a single render
 app.batch([
   { action: 'setState', target: id, payload: { count: 10 } },
   { action: 'dispatch', payload: { action: 'toggleTheme' } }
 ])
+
+// Teardown
+app.destroy()
 ```
 
 ## Batteries Included
@@ -131,6 +154,8 @@ connectDevtools(app)
 
 3. **Build** — `npm run build` from the workspace root.
 
+**Security:** the bridge binds to `127.0.0.1` only and rejects browser connections from non-localhost origins (add more with `VIO_DEVTOOLS_ORIGINS=https://a,https://b`). Set `VIO_DEVTOOLS_TOKEN` on the server and pass the same value as `connectDevtools(app, { token })` to require a token.
+
 ### Available Tools
 
 | Tool | Description |
@@ -143,7 +168,7 @@ connectDevtools(app)
 | `vio_get_component_tree` | Full component tree with IDs and state |
 | `vio_get_registered_components` | List all registered component names |
 | `vio_remove_component` | Unmount a component by instance ID |
-| `vio_batch` | Execute multiple operations atomically |
+| `vio_batch` | Validate, then apply several operations with one render |
 | `vio_emit` | Emit an event on the event bus |
 | `vio_get_event_history` | Get recent event bus history |
 
@@ -151,9 +176,9 @@ connectDevtools(app)
 
 1. **JSON-native** — `{ tag, props, children }`. Any LLM can produce valid component trees.
 2. **Pure renders** — `render(state) → tree`. Same input, same output. Deterministic.
-3. **Full introspection** — Agents can "see" the entire UI as JSON via `getComponentTree()`.
+3. **Full introspection** — Agents can see every mounted component, its state, and props via `getComponentTree()`.
 4. **Full control** — `setState`, `dispatch`, `navigate`, `batch` — all programmatic.
-5. **Serializable** — Components, state, events are all plain JSON. Works over any transport.
+5. **Serializable output** — Trees, state, and events are plain data (functions are dropped from introspection). Works over any transport.
 6. **MCP-ready** — Connect `vio-devtools` and any MCP client can control your app live.
 
 ## License

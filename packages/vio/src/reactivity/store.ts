@@ -19,8 +19,12 @@ export class Store {
     return { ...this.state }
   }
 
+  hasAction(action: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.actions, action)
+  }
+
   dispatch(action: string, payload?: unknown): void {
-    const fn = this.actions[action]
+    const fn = this.hasAction(action) ? this.actions[action] : undefined
     if (!fn) throw new Error(`Unknown store action: "${action}"`)
 
     const prevState = { ...this.state }
