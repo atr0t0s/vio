@@ -2,6 +2,7 @@ import type { ComponentDef, RenderFunction } from './types'
 
 export function defineComponent(def: {
   name: string
+  doc?: string
   state?: Record<string, unknown>
   render: RenderFunction
   onMount?: ComponentDef['onMount']
@@ -11,6 +12,7 @@ export function defineComponent(def: {
 }): ComponentDef {
   return {
     name: def.name,
+    doc: def.doc,
     state: def.state ? { ...def.state } : {},
     render: def.render,
     onMount: def.onMount,

@@ -75,3 +75,84 @@ export async function waitFor(check: () => AssertResult, cond: AssertCondition):
     await new Promise(resolve => setTimeout(resolve, 25))
   }
 }
+
+/** RFC 6902 subset. `path` is a JSON Pointer; `-` appends to an array. */
+export type PatchOp =
+  | { op: 'add' | 'replace' | 'test'; path: string; value: unknown }
+  | { op: 'remove'; path: string }
+
+const UNSAFE_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+
+function segments(path: string): string[] {
+  if (path === '') return []
+  if (!path.startsWith('/')) throw new Error(`E_PATCH: path "${path}" must start with "/"`)
+  return path.slice(1).split('/').map(s => s.replace(/~1/g, '/').replace(/~0/g, '~'))
+}
+
+/**
+ * Apply a JSON Patch without mutating `doc`: only the containers along each
+ * path are copied. Throws `E_PATCH` (with the op index) and applies nothing
+ * if any op fails.
+ */
+export function applyPatch<T>(doc: T, ops: PatchOp[]): T {
+  let result: unknown = doc
+  ops.forEach((op, i) => {
+    try {
+      result = applyOne(result, op)
+    } catch (err) {
+      const message = err instanceof Error ? err.message.replace(/^E_PATCH: /, '') : String(err)
+      throw new Error(`E_PATCH ops[${i}] ${op.op} ${op.path}: ${message}`)
+    }
+  })
+  return result as T
+}
+
+function applyOne(doc: unknown, op: PatchOp): unknown {
+  const segs = segments(op.path)
+  if (segs.some(s => UNSAFE_SEGMENTS.has(s))) throw new Error('unsafe key in path')
+  if (op.op === 'test') {
+    if (!deepEqual(getPointer(doc, op.path), op.value)) throw new Error(`test failed, value is ${short(getPointer(doc, op.path))}`)
+    return doc
+  }
+  if (segs.length === 0) {
+    if (op.op === 'remove') throw new Error('cannot remove the root')
+    return op.value
+  }
+  const write = (node: unknown, depth: number): unknown => {
+    const key = segs[depth]!
+    const last = depth === segs.length - 1
+    if (Array.isArray(node)) {
+      const copy = node.slice()
+      const index = key === '-' ? copy.length : Number(key)
+      if (!/^(0|[1-9]\d*)$/.test(key) && key !== '-') throw new Error(`"${key}" is not an array index`)
+      if (last) {
+        if (op.op === 'add') {
+          if (index > copy.length) throw new Error(`index ${index} is past the end (${copy.length})`)
+          copy.splice(index, 0, op.value)
+        } else {
+          if (index >= copy.length) throw new Error(`index ${index} does not exist`)
+          if (op.op === 'remove') copy.splice(index, 1)
+          else copy[index] = op.value
+        }
+        return copy
+      }
+      if (index >= copy.length) throw new Error(`index ${index} does not exist`)
+      copy[index] = write(copy[index], depth + 1)
+      return copy
+    }
+    if (node === null || typeof node !== 'object') throw new Error(`no container at "${key}"`)
+    const copy: Record<string, unknown> = { ...(node as Record<string, unknown>) }
+    if (last) {
+      if (op.op === 'remove' || op.op === 'replace') {
+        if (!Object.prototype.hasOwnProperty.call(copy, key)) throw new Error(`"${key}" does not exist`)
+      }
+      if (op.op === 'remove') delete copy[key]
+      else copy[key] = op.value
+      return copy
+    }
+    if (!Object.prototype.hasOwnProperty.call(copy, key)) throw new Error(`"${key}" does not exist`)
+    copy[key] = write(copy[key], depth + 1)
+    return copy
+  }
+  return write(doc, 0)
+}

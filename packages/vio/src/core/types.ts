@@ -11,6 +11,8 @@ export type VioChild = VioNodeDescriptor | string | number | boolean | null | un
 
 export interface ComponentDef {
   name: string
+  /** Shown to agents in `app.manifest().docs` while the component is mounted. */
+  doc?: string
   state?: Record<string, unknown>
   render: RenderFunction
   onMount?: (ctx: ComponentContext) => void | (() => void)

@@ -1,6 +1,7 @@
 interface VioAppLike {
   getState(instanceId: string): Record<string, unknown>
   setState(instanceId: string, partial: Record<string, unknown>): void
+  patchState?(instanceId: string, ops: unknown[]): void
   getStore(): Record<string, unknown>
   dispatch(action: string, payload?: unknown): void
   navigate(path: string): unknown
@@ -75,8 +76,15 @@ const METHOD_MAP: Record<string, MethodHandler> = {
   act: (app, p) => app.act(p.ref as string, p.action as string, p.value as string | undefined),
   invoke: (app, p) => app.invoke(p.action as string, p.payload, { confirm: p.confirm === true }),
   assert: (app, p) => app.assert(p),
-  state: (app, p) => {
+  state: async (app, p) => {
     const id = p.id as string | undefined
+    if (p.patch) {
+      if (!id) throw new Error('E_STATE: patch needs a component id; change the store with vio_invoke')
+      if (!app.patchState) throw new Error('E_STATE: this app version has no patchState')
+      app.patchState(id, p.patch as unknown[])
+      await new Promise(r => setTimeout(r, 0))
+      return app.see({ diff: true })
+    }
     if (p.set) {
       if (!id) throw new Error('E_STATE: set needs a component id; change the store with vio_invoke')
       app.setState(id, p.set as Record<string, unknown>)

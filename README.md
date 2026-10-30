@@ -116,6 +116,37 @@ store: {
 }
 ```
 
+## Generated UI
+
+Agents can describe a screen as a flat JSON spec instead of writing code. A **catalog** lists the trusted components (and HTML tags) a spec may use; every spec is validated before it touches the DOM.
+
+```ts
+import { defineCatalog, defineSpecView } from '@atrotos/vio/spec'
+
+const catalog = defineCatalog({
+  components: { Badge: { component: Badge, doc: 'Status label', props: { 'label!': 'string', tone: ['info', 'warn'] } } }
+})
+const View = defineSpecView({ name: 'View', catalog, actions: ['toggle'] })
+
+// The spec lives in the view's state. Agents set or patch it:
+app.patchState('View', [{ op: 'replace', path: '/spec', value: {
+  root: 'list',
+  nodes: {
+    list: { type: 'ul', children: ['row'] },
+    row:  { type: 'li', each: '/todos', key: 'id', text: { $item: '/text' },
+            props: { onClick: { $action: 'toggle', args: { $item: '/id' } } } }
+  }
+} }])
+```
+
+- **Values:** `{ $state: '/ptr' }` reads the store, `{ $item: '/field' }` reads the current `each` item, `{ $action: 'name', args }` dispatches a store action, `{ $event: 'value' }` passes an input's value as an arg. Functions are never allowed.
+- **Validation** reports every problem with a JSON Pointer and a fix: `E_SPEC_PROP /nodes/b/props/lable: Badge has no prop "lable"; did you mean "label"?`. An invalid spec renders its errors (visible in `app.see()`) instead of the UI.
+- **Safety:** unknown tags (`script`, `iframe`, `svg`…), string handlers, raw HTML props, `__proto__` keys, and oversized or cyclic specs are rejected.
+- **Discovery:** a mounted spec view puts its catalog and the spec grammar in `app.manifest().docs`.
+- `app.patchState(id, ops)` applies JSON Patch (`add`, `remove`, `replace`, `test`) to any component's state, all-or-nothing.
+
+The spec module is a separate entry point, so apps that don't use it don't ship it.
+
 ## Runtime API
 
 Lower-level control of a running app:
@@ -202,7 +233,7 @@ connectDevtools(app)
 | `vio_act` | click / fill / check / select / press / … by ref; returns a diff |
 | `vio_invoke` | Run a store action by name; returns a diff |
 | `vio_assert` | Wait for text / route / state / ref / count conditions |
-| `vio_state` | Read store or component state by JSON Pointer; patch component state |
+| `vio_state` | Read store or component state by JSON Pointer; `set` or JSON `patch` component state |
 | `vio_nav` | Navigate; returns a diff |
 | `vio_debug` | Component tree, recent events, or errors |
 
