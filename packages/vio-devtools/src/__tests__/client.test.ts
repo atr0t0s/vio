@@ -107,3 +107,46 @@ describe('connectDevtools hardening', () => {
     expect(JSON.parse(ws.sent[0]!)).toEqual({ id: 9, error: { message: 'Unknown method: constructor' } })
   })
 })
+
+describe('agent contract methods', () => {
+  function connect(app: Record<string, unknown>) {
+    const ws = connectDevtools(app as any).ws as unknown as MockWebSocket
+    const call = async (id: number, method: string, params: Record<string, unknown> = {}) => {
+      ws.onmessage?.({ data: JSON.stringify({ id, method, params }) })
+      await new Promise(r => setTimeout(r, 5))
+      return JSON.parse(ws.sent.find(s => JSON.parse(s).id === id)!)
+    }
+    return call
+  }
+
+  it('awaits async results like act', async () => {
+    const call = connect({ act: vi.fn().mockResolvedValue('~ button#e5 "Saved"') })
+    expect(await call(1, 'act', { ref: 'e5', action: 'click' })).toEqual({ id: 1, result: '~ button#e5 "Saved"' })
+  })
+
+  it('returns async errors as error responses', async () => {
+    const call = connect({ invoke: vi.fn().mockRejectedValue(new Error('E_CONFIRM: needs confirmation')) })
+    expect(await call(2, 'invoke', { action: 'clear' })).toEqual({ id: 2, error: { message: 'E_CONFIRM: needs confirmation' } })
+  })
+
+  it('reads state by pointer and refuses store writes', async () => {
+    const call = connect({ getStore: () => ({ todos: [{ text: 'a/b' }] }), getState: () => ({ n: 1 }), setState: vi.fn() })
+    expect((await call(3, 'state', { path: '/todos/0/text' })).result).toBe('a/b')
+    expect((await call(4, 'state', { id: 'X', path: '/n' })).result).toBe(1)
+    expect((await call(5, 'state', { set: { n: 2 } })).error.message).toMatch(/E_STATE/)
+  })
+
+  it('debug filters errors and formats compactly', async () => {
+    const getEventHistory = () => [
+      { type: 'state:change', payload: {}, timestamp: 0, seq: 1 },
+      { type: 'component:error', payload: { id: 'App/X', message: 'boom' }, timestamp: 0, seq: 2 }
+    ]
+    const call = connect({ getEventHistory })
+    expect((await call(6, 'debug', { what: 'errors' })).result).toBe('2 component:error {"id":"App/X","message":"boom"}')
+  })
+
+  it('nav reports unknown routes', async () => {
+    const call = connect({ navigate: () => false, see: () => '' })
+    expect((await call(7, 'nav', { path: '/nope' })).error.message).toMatch(/E_NOT_FOUND/)
+  })
+})

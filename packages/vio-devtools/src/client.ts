@@ -10,7 +10,35 @@ interface VioAppLike {
   batch(ops: { action: string; target?: string; payload?: unknown }[]): void
   emit(event: string, payload?: Record<string, unknown>): void
   on(event: string, handler: (e: unknown) => void): () => void
-  getEventHistory(): { type: string; payload: Record<string, unknown>; timestamp: number }[]
+  getEventHistory(): { type: string; payload: Record<string, unknown>; timestamp: number; seq?: number }[]
+  manifest(): unknown
+  see(opts?: Record<string, unknown>): string
+  act(ref: string, action: string, value?: string): Promise<string>
+  invoke(action: string, payload?: unknown, opts?: { confirm?: boolean }): Promise<string>
+  assert(cond: Record<string, unknown>): Promise<unknown>
+}
+
+const ERROR_EVENTS = new Set(['component:error', 'listener:error', 'security:blocked', 'route:notfound'])
+
+function pointer(doc: unknown, path?: string): unknown {
+  if (!path || path === '/') return doc
+  let cur = doc
+  for (const raw of path.replace(/^\//, '').split('/')) {
+    const key = raw.replace(/~1/g, '/').replace(/~0/g, '~')
+    if (cur === null || typeof cur !== 'object') return undefined
+    cur = (cur as Record<string, unknown>)[key]
+  }
+  return cur
+}
+
+function compactEvents(events: { type: string; payload: Record<string, unknown>; seq?: number }[]): string {
+  if (events.length === 0) return 'none'
+  return events.map(e => {
+    let payload = ''
+    try { payload = JSON.stringify(e.payload) ?? '' } catch { payload = '[unserializable]' }
+    if (payload.length > 120) payload = payload.slice(0, 119) + '…'
+    return `${e.seq ?? ''} ${e.type} ${payload}`.trim()
+  }).join('\n')
 }
 
 interface WsRequest {
@@ -39,7 +67,35 @@ const METHOD_MAP: Record<string, MethodHandler> = {
   removeComponent: (app, p) => { app.removeComponent(p.instanceId as string); return { success: true } },
   batch: (app, p) => { app.batch(p.operations as any); return { success: true } },
   emit: (app, p) => { app.emit(p.event as string, p.payload as Record<string, unknown>); return { success: true } },
-  getEventHistory: (app) => app.getEventHistory()
+  getEventHistory: (app) => app.getEventHistory(),
+
+  // Agent contract (used by the MCP tools)
+  manifest: (app) => app.manifest(),
+  see: (app, p) => app.see(p),
+  act: (app, p) => app.act(p.ref as string, p.action as string, p.value as string | undefined),
+  invoke: (app, p) => app.invoke(p.action as string, p.payload, { confirm: p.confirm === true }),
+  assert: (app, p) => app.assert(p),
+  state: (app, p) => {
+    const id = p.id as string | undefined
+    if (p.set) {
+      if (!id) throw new Error('E_STATE: set needs a component id; change the store with vio_invoke')
+      app.setState(id, p.set as Record<string, unknown>)
+    }
+    return pointer(id ? app.getState(id) : app.getStore(), p.path as string | undefined) ?? null
+  },
+  nav: async (app, p) => {
+    const ok = app.navigate(p.path as string)
+    await new Promise(r => setTimeout(r, 0))
+    if (ok === false) throw new Error(`E_NOT_FOUND: no route for "${p.path}"; see vio_manifest routes`)
+    return app.see({ diff: true })
+  },
+  debug: (app, p) => {
+    const limit = typeof p.limit === 'number' ? p.limit : 20
+    if (p.what === 'tree') return app.getComponentTree()
+    const history = app.getEventHistory()
+    const events = p.what === 'errors' ? history.filter(e => ERROR_EVENTS.has(e.type)) : history
+    return compactEvents(events.slice(-limit))
+  }
 }
 
 export interface DevtoolsOptions {
@@ -78,12 +134,17 @@ export function connectDevtools(app: VioAppLike, options?: DevtoolsOptions): Dev
       return
     }
 
-    try {
-      const result = handler(app, req.params ?? {})
-      ws.send(JSON.stringify({ id: req.id, result }))
-    } catch (err) {
+    const reply = (result: unknown) => ws.send(JSON.stringify({ id: req.id, result }))
+    const fail = (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       ws.send(JSON.stringify({ id: req.id, error: { message } }))
+    }
+    try {
+      const result = handler(app, req.params ?? {})
+      if (result instanceof Promise) result.then(reply, fail)
+      else reply(result)
+    } catch (err) {
+      fail(err)
     }
   }
 

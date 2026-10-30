@@ -15,7 +15,9 @@
       "import": "./dist/client.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "build:client": "vite build",
@@ -29,9 +31,10 @@
   },
   "devDependencies": {
     "@types/ws": "^8.5.0",
+    "gpt-tokenizer": "4.0.0",
+    "jsdom": "^26.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.1.0",
-    "vitest": "^3.0.0",
-    "jsdom": "^26.0.0"
+    "vitest": "^3.0.0"
   }
 }

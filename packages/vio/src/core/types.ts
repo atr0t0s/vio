@@ -16,6 +16,11 @@ export interface ComponentDef {
   onMount?: (ctx: ComponentContext) => void | (() => void)
   onUpdate?: (ctx: ComponentContext, prevState: Record<string, unknown>) => void
   onUnmount?: (ctx: ComponentContext) => void
+  /**
+   * Error boundary: called when this component or any descendant throws while
+   * rendering. Return fallback UI; the next state/props change retries.
+   */
+  onError?: (error: Error, ctx: ComponentContext) => VioNodeDescriptor | null
 }
 
 export interface RouteInfo {
@@ -76,9 +81,22 @@ export interface StoreAction {
   (state: Record<string, unknown>, payload?: unknown): Record<string, unknown>
 }
 
+export interface ActionMeta {
+  /** One line for agents, e.g. "Add a todo". */
+  doc?: string
+  /** Payload shape in short form, e.g. "text:string" or "{id:number}". */
+  params?: string
+  /** `invoke` refuses to run it unless called with `{ confirm: true }`. */
+  confirm?: boolean
+}
+
 export interface StoreConfig {
   state: Record<string, unknown>
   actions: Record<string, StoreAction>
+  /** Agent-facing descriptions, surfaced by `app.manifest()`. */
+  meta?: Record<string, ActionMeta>
+  /** Deep-freeze state so accidental mutation throws. Default true. */
+  freeze?: boolean
 }
 
 export interface AppConfig {
@@ -102,11 +120,14 @@ export type VioEventType =
   | 'batch:start'
   | 'batch:end'
   | 'app:destroy'
+  | 'listener:error'
 
 export interface VioEvent {
   type: VioEventType | string
   payload: Record<string, unknown>
   timestamp: number
+  /** Monotonic per bus; orders events emitted in the same millisecond. */
+  seq: number
 }
 
 export interface BatchOperation {

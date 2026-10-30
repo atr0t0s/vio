@@ -2,7 +2,9 @@ export const VERSION = '2.0.0'
 
 // Core
 export { createApp } from './core/app'
-export type { VioApp } from './core/app'
+export type { VioApp, Manifest } from './core/app'
+export type { SeeOptions, ActKind } from './agent/snapshot'
+export type { AssertCondition, AssertResult } from './agent/protocol'
 export { defineComponent, ComponentRegistry } from './core/component'
 export { createElement } from './core/node'
 export { Renderer, VioError } from './core/renderer'
@@ -22,6 +24,7 @@ export type {
   RenderFunction,
   Route,
   StoreConfig,
+  ActionMeta,
   AppConfig,
   VioEvent,
   BatchOperation
