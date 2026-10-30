@@ -11,13 +11,13 @@ export interface ToolDef {
 export const TOOLS: ToolDef[] = [
   {
     name: 'vio_manifest',
-    description: 'Routes, store actions, components. Call first.',
+    description: 'Routes, store actions, components, docs. Call first.',
     wsMethod: 'manifest',
     inputSchema: {}
   },
   {
     name: 'vio_see',
-    description: 'UI as text lines like: e5 button "Add". diff: only changes since last see.',
+    description: 'UI as lines like e5 button "Add". diff: changes since last see.',
     wsMethod: 'see',
     inputSchema: {
       diff: z.boolean().optional(),
@@ -28,7 +28,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_act',
-    description: 'Act on an element by ref. Returns UI diff.',
+    description: 'Act on an element by ref → UI diff.',
     wsMethod: 'act',
     inputSchema: {
       ref: z.string(),
@@ -38,7 +38,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_invoke',
-    description: 'Run a store action. Returns UI diff. Prefer over clicking.',
+    description: 'Run a store action → UI diff. Prefer over clicking.',
     wsMethod: 'invoke',
     inputSchema: {
       action: z.string(),
@@ -48,7 +48,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_assert',
-    description: 'Wait up to timeout ms (1000) for all conditions. state: JSON Pointer into store, or into component "of". equals: state value, or ref input value. count: lines with role. Returns {pass, detail}.',
+    description: 'Wait (timeout ms, 1000) until all hold. state: pointer into store or component "of"; equals: its value or ref input value; count: lines with role. → {pass, detail}',
     wsMethod: 'assert',
     inputSchema: {
       text: z.string().optional(),
@@ -66,17 +66,18 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_state',
-    description: 'Read store (or component id) at JSON Pointer path. set: merge into component state.',
+    description: 'Read store or component id at pointer path. Component only: set merges; patch [{op:add|remove|replace|test,path,value}] returns UI diff.',
     wsMethod: 'state',
     inputSchema: {
       id: z.string().optional(),
       path: z.string().optional(),
-      set: z.record(z.unknown()).optional()
+      set: z.record(z.unknown()).optional(),
+      patch: z.array(z.record(z.unknown())).optional()
     }
   },
   {
     name: 'vio_nav',
-    description: 'Go to a route path. Returns UI diff.',
+    description: 'Go to a route path → UI diff.',
     wsMethod: 'nav',
     inputSchema: {
       path: z.string()
@@ -84,7 +85,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_debug',
-    description: 'tree: component ids and state. events/errors: recent bus events.',
+    description: 'tree: component ids, state. events, errors: recent.',
     wsMethod: 'debug',
     inputSchema: {
       what: z.enum(['tree', 'events', 'errors']),

@@ -136,6 +136,14 @@ describe('agent contract methods', () => {
     expect((await call(5, 'state', { set: { n: 2 } })).error.message).toMatch(/E_STATE/)
   })
 
+  it('patches component state and returns a diff', async () => {
+    const patchState = vi.fn()
+    const call = connect({ patchState, see: () => '+ e9 h1 "Hello"' })
+    const ops = [{ op: 'replace', path: '/spec/root', value: 'h' }]
+    expect((await call(8, 'state', { id: 'View', patch: ops })).result).toBe('+ e9 h1 "Hello"')
+    expect(patchState).toHaveBeenCalledWith('View', ops)
+  })
+
   it('debug filters errors and formats compactly', async () => {
     const getEventHistory = () => [
       { type: 'state:change', payload: {}, timestamp: 0, seq: 1 },

@@ -7,7 +7,8 @@ import { makeTodoApp, resetDom } from '../fixtures/todo-app'
 // Token budgets (o200k_base). These are the "agent-first" claims made testable:
 // raise a budget only with a reason, never to make a failing test pass.
 const BUDGET = {
-  agentsMd: 520,
+  // 520 → 560: added the generated-UI pointer; the spec grammar itself lives in manifest().docs.
+  agentsMd: 560,
   snapshot20: 450,
   toggleDiff: 60,
   addDiff: 80,

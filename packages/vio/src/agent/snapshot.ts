@@ -235,8 +235,13 @@ export class Snapshotter {
     const cls = el.getAttribute('class')
     if (cls) parts.push(cls.trim().split(/\s+/).slice(0, 3).map(c => '.' + c).join(''))
 
-    const name = clip(nameOf(node))
+    // Errors are the one thing an agent must read in full.
+    const name = clip(nameOf(node), node.role === 'alert' ? 600 : MAX_NAME)
     if (name && name !== clip(parentName)) parts.push(quote(name))
+    // A labelled container (section aria-label="Cart") still shows its own text.
+    if (el.hasAttribute('aria-label') && node.text.length && !CONTENT_NAMED.test(node.role) && !TEXT_ROLES.has(node.role)) {
+      parts.push(quote(clip(node.text.join(' '))))
+    }
 
     if (node.role === 'textbox' || node.role === 'select') {
       const field = el as HTMLInputElement

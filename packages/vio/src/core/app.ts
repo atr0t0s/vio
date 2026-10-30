@@ -6,8 +6,8 @@ import { Store } from '../reactivity/store'
 import { Router } from '../router/router'
 import { Snapshotter } from '../agent/snapshot'
 import type { SeeOptions, ActKind } from '../agent/snapshot'
-import { getPointer, deepEqual, short, settle, waitFor } from '../agent/protocol'
-import type { AssertCondition, AssertResult } from '../agent/protocol'
+import { getPointer, deepEqual, short, settle, waitFor, applyPatch } from '../agent/protocol'
+import type { AssertCondition, AssertResult, PatchOp } from '../agent/protocol'
 import { toPlain } from './renderer'
 
 export interface Manifest {
@@ -18,6 +18,8 @@ export interface Manifest {
   actions: Record<string, string>
   /** Component names currently mounted. */
   components: string[]
+  /** Usage notes from mounted components that define `doc` (e.g. a spec view's catalog). */
+  docs?: Record<string, string>
 }
 
 export interface VioApp {
@@ -25,6 +27,8 @@ export interface VioApp {
   /** Unmount everything, remove listeners, and clear the event bus. */
   destroy(): void
   setState(instanceId: string, partial: Record<string, unknown>): void
+  /** Apply a JSON Patch to a component's state (e.g. edit a spec in place); all-or-nothing. */
+  patchState(instanceId: string, ops: PatchOp[]): void
   getState(instanceId: string): Record<string, unknown>
   dispatch(action: string, payload?: unknown): void
   getStore(): Record<string, unknown>
@@ -92,15 +96,18 @@ export function createApp(config: AppConfig): VioApp {
 
   const snap = new Snapshotter(rootEl, () => `route=${lastPath ?? '-'}`)
 
-  function componentNames(): string[] {
+  function mountedDocs(): { names: string[]; docs: Record<string, string> } {
     const names = new Set<string>()
+    const docs: Record<string, string> = {}
     const visit = (node: ComponentTreeNode) => {
       if (node.name) names.add(node.name)
+      const doc = renderer.getInstance(node.id)?.def.doc
+      if (doc) docs[node.id] = doc
       node.children.forEach(visit)
     }
     const tree = renderer.getTree()
     if (tree) visit(tree)
-    return [...names]
+    return { names: [...names], docs }
   }
 
   function check(cond: AssertCondition): AssertResult {
@@ -207,6 +214,16 @@ export function createApp(config: AppConfig): VioApp {
 
     setState(instanceId, partial) {
       renderer.setState(instanceId, partial)
+    },
+
+    patchState(instanceId, ops) {
+      const inst = renderer.getInstance(instanceId)
+      if (!inst) throw new Error(`E_NO_INSTANCE: no instance with id "${instanceId}"`)
+      const next = applyPatch(inst.state, ops)
+      if (next === null || typeof next !== 'object' || Array.isArray(next)) throw new Error('E_PATCH: component state must stay an object')
+      // setState merges, so keys removed by the patch must be cleared explicitly.
+      const cleared = Object.fromEntries(Object.keys(inst.state).filter(k => !(k in next)).map(k => [k, undefined]))
+      renderer.setState(instanceId, { ...cleared, ...next })
     },
 
     getState(instanceId) {
@@ -355,12 +372,15 @@ export function createApp(config: AppConfig): VioApp {
         const m = store!.meta[name]
         actions[name] = m ? [m.params, m.doc, m.confirm ? 'confirm' : ''].filter(Boolean).join(' · ') : ''
       }
-      return {
+      const { names, docs } = mountedDocs()
+      const manifest: Manifest = {
         route: lastPath,
         routes: (config.routes ?? []).map(r => r.guard ? `${r.path} (guard)` : r.path),
         actions,
-        components: componentNames()
+        components: names
       }
+      if (Object.keys(docs).length) manifest.docs = docs
+      return manifest
     }
   }
 }
