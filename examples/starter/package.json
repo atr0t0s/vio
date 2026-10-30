@@ -7,8 +7,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "vio": "file:../../packages/vio",
-    "vio-devtools": "*"
+    "@atrotos/vio": "file:../../packages/vio",
+    "@atrotos/vio-devtools": "*"
   },
   "devDependencies": {
     "vite": "^6.1.0",
