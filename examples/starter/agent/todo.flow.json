@@ -1,0 +1,14 @@
+{
+  "steps": [
+    { "nav": "/" },
+    { "act": ["textbox", "fill", "Write release notes"] },
+    { "act": ["textbox", "press", "Enter"] },
+    { "assert": { "text": "Write release notes" } },
+    { "act": ["group:Write release notes>button.toggle", "click"] },
+    { "assert": { "ref": "group:Write release notes>button.toggle", "text": "✓" } },
+    { "nav": "/completed" },
+    { "assert": { "route": "/completed", "text": "Write release notes" } },
+    { "act": ["group:Write release notes>button.delete", "click"] },
+    { "assert": { "text": "Write release notes", "not": true } }
+  ]
+}

@@ -17,8 +17,12 @@ class MockWebSocket {
   }
 
   send(data: string) {
-    this.sent.push(data)
+    // The hello handshake is covered separately; keep `sent` to request replies.
+    if (JSON.parse(data).hello) this.hellos.push(data)
+    else this.sent.push(data)
   }
+
+  hellos: string[] = []
 
   close() {
     this.readyState = MockWebSocket.CLOSED
@@ -156,5 +160,51 @@ describe('agent contract methods', () => {
   it('nav reports unknown routes', async () => {
     const call = connect({ navigate: () => false, see: () => '' })
     expect((await call(7, 'nav', { path: '/nope' })).error.message).toMatch(/E_NOT_FOUND/)
+  })
+})
+
+describe('hello handshake', () => {
+  it('tells the bridge which page connected', async () => {
+    // These tests run in Node; stand in for the page globals.
+    const g = globalThis as Record<string, unknown>
+    g.location = { href: 'http://localhost:4005/#/' }
+    g.document = { title: 'My App' }
+    try {
+      const ws = connectDevtools({} as any).ws as unknown as MockWebSocket
+      await new Promise(r => setTimeout(r, 5))
+      expect(JSON.parse(ws.hellos[0]!)).toEqual({ hello: { url: 'http://localhost:4005/#/', title: 'My App' } })
+    } finally {
+      delete g.location
+      delete g.document
+    }
+  })
+})
+
+describe('reconnect', () => {
+  it('reconnects after the server goes away, stands by when replaced, stops when disconnected', async () => {
+    vi.useFakeTimers()
+    try {
+      const created: MockWebSocket[] = []
+      const Orig = (globalThis as any).WebSocket
+      ;(globalThis as any).WebSocket = class extends Orig { constructor(url: string) { super(url); created.push(this as any) } }
+      const conn = connectDevtools({} as any)
+      created[0]!.onclose?.({ code: 1006 } as any)
+      await vi.advanceTimersByTimeAsync(1010) // reconnect, then its open event
+      expect(created).toHaveLength(2)
+      // Replaced by another page: retry slowly in standby mode only.
+      ;(created[1] as any).onclose?.({ code: 4001 })
+      await vi.advanceTimersByTimeAsync(9000)
+      expect(created).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(created).toHaveLength(3)
+      expect(created[2]!.url).toBe('ws://127.0.0.1:3100?standby=1')
+      conn.disconnect()
+      ;(created[2] as any).onclose?.({ code: 1006 })
+      await vi.advanceTimersByTimeAsync(20000)
+      expect(created).toHaveLength(3)
+      ;(globalThis as any).WebSocket = Orig
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

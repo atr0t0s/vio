@@ -48,6 +48,8 @@ interface PendingCall {
 export class WsBridge {
   private wss: WebSocketServer | null = null
   private client: WebSocket | null = null
+  /** What the connected page reported about itself ({url, title}) and when it connected. */
+  private clientInfo: { url?: string; title?: string; since: string } | null = null
   private pending = new Map<number, PendingCall>()
   private port: number
   private timeout: number
@@ -79,16 +81,32 @@ export class WsBridge {
         resolve(port)
       })
       this.wss.on('error', reject)
-      this.wss.on('connection', (ws) => {
+      this.wss.on('connection', (ws, req) => {
+        // A replaced page retries in standby mode: it may only fill an empty slot.
+        const standby = new URL(req.url ?? '/', 'http://localhost').searchParams.has('standby')
+        if (standby && this.isConnected()) {
+          ws.close(4001, 'another page is active')
+          return
+        }
         if (this.client && this.client.readyState === WebSocket.OPEN) {
-          this.client.close()
+          // Newest page wins; say so, since the CLI/MCP now drives a different tab.
+          console.error(`[vio-devtools] a new page connected; dropping ${this.clientInfo?.url ?? 'the previous one'}`)
+          this.client.close(4001, 'replaced by a newer page')
         }
         this.client = ws
+        this.clientInfo = { since: new Date().toISOString() }
         ws.on('message', (data) => {
-          let msg: WsResponse | WsErrorResponse
+          let msg: (WsResponse | WsErrorResponse) & { hello?: { url?: unknown; title?: unknown } }
           try {
             msg = JSON.parse(data.toString())
           } catch {
+            return
+          }
+          if (msg?.hello && this.client === ws && this.clientInfo) {
+            const { url, title } = msg.hello
+            if (typeof url === 'string') this.clientInfo.url = url.slice(0, 300)
+            if (typeof title === 'string') this.clientInfo.title = title.slice(0, 120)
+            console.error(`[vio-devtools] connected: ${this.clientInfo.url ?? 'unknown page'}`)
             return
           }
           if (!msg || typeof msg.id !== 'number') return
@@ -103,10 +121,20 @@ export class WsBridge {
           }
         })
         ws.on('close', () => {
-          if (this.client === ws) this.client = null
+          if (this.client === ws) {
+            this.client = null
+            this.clientInfo = null
+          }
         })
       })
     })
+  }
+
+  /** One line describing which page the bridge is driving. */
+  status(): string {
+    if (!this.isConnected() || !this.clientInfo) return 'no app connected; open the app (it must call connectDevtools)'
+    const { url, title, since } = this.clientInfo
+    return `connected: ${url ?? 'unknown page'}${title ? ` "${title}"` : ''} since ${since}`
   }
 
   isConnected(): boolean {
