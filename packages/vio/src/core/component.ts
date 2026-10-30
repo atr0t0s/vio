@@ -7,6 +7,7 @@ export function defineComponent(def: {
   onMount?: ComponentDef['onMount']
   onUpdate?: ComponentDef['onUpdate']
   onUnmount?: ComponentDef['onUnmount']
+  onError?: ComponentDef['onError']
 }): ComponentDef {
   return {
     name: def.name,
@@ -14,7 +15,8 @@ export function defineComponent(def: {
     render: def.render,
     onMount: def.onMount,
     onUpdate: def.onUpdate,
-    onUnmount: def.onUnmount
+    onUnmount: def.onUnmount,
+    onError: def.onError
   }
 }
 

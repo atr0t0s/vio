@@ -22,6 +22,8 @@ export interface RendererOptions {
   getStore?: () => Record<string, unknown>
   dispatch?: (action: string, payload?: unknown) => void
   getRoute?: () => RouteInfo
+  /** Store change source; defaults to listening for `store:change` on the bus. */
+  subscribeStore?: (onChange: () => void) => () => void
   /** Maximum element/component nesting before rendering fails with E_DEPTH. */
   maxDepth?: number
 }
@@ -150,9 +152,12 @@ export class Renderer {
     this.report = (reason, detail) => this.bus.emit('security:blocked', { reason, ...detail })
 
     // A store change re-renders from each top-level instance; children follow via reconciliation.
-    this.unsubscribeStore = this.bus.on('store:change', () => {
+    const onStoreChange = () => {
       for (const inst of this.topLevel) this.schedule(inst)
-    })
+    }
+    this.unsubscribeStore = options.subscribeStore
+      ? options.subscribeStore(onStoreChange)
+      : this.bus.on('store:change', onStoreChange)
   }
 
   /**
@@ -220,6 +225,24 @@ export class Renderer {
     this.pendingUpdates = []
   }
 
+  /** Copy of every live instance's state, for rollback. */
+  captureStates(): Map<string, Record<string, unknown>> {
+    return new Map([...this.instances].map(([id, inst]) => [id, inst.state]))
+  }
+
+  /** Put back states captured earlier; instances that no longer exist are skipped. */
+  restoreStates(saved: Map<string, Record<string, unknown>>): void {
+    this.batch(() => {
+      for (const [id, state] of saved) {
+        const inst = this.instances.get(id)
+        if (inst && inst.state !== state) {
+          inst.state = state
+          this.schedule(inst)
+        }
+      }
+    })
+  }
+
   getInstance(instanceId: string): ComponentInstance | undefined {
     return this.instances.get(instanceId)
   }
@@ -277,7 +300,11 @@ export class Renderer {
         const rendered = new Set<Instance>()
         for (const inst of dirty) {
           if (!inst.alive || this.hasAncestorIn(inst, rendered)) continue
-          this.rerender(inst)
+          try {
+            this.rerender(inst)
+          } catch (err) {
+            this.escalate(inst, err)
+          }
           rendered.add(inst)
         }
         this.flushMounts()
@@ -360,7 +387,11 @@ export class Renderer {
     this.instances.set(id, inst)
     parent?.childIds.push(id)
 
-    inst.vnode = this.create(this.renderInstance(inst), inst, ns, depth + 1)
+    try {
+      inst.vnode = this.create(this.renderInstance(inst), inst, ns, depth + 1)
+    } catch (err) {
+      inst.vnode = this.recover(inst, err, null)
+    }
     inst.element = this.elementOf(inst.vnode)
     this.pendingMounts.push(inst)
     return inst
@@ -393,9 +424,52 @@ export class Renderer {
 
   private rerender(inst: Instance): void {
     const old = inst.vnode
-    const desc = this.renderInstance(inst)
-    inst.vnode = old ? this.patch(old, desc, inst, inst.ns, inst.depth + 1) : this.create(desc, inst, inst.ns, inst.depth + 1)
+    try {
+      const desc = this.renderInstance(inst)
+      inst.vnode = old ? this.patch(old, desc, inst, inst.ns, inst.depth + 1) : this.create(desc, inst, inst.ns, inst.depth + 1)
+    } catch (err) {
+      inst.vnode = this.recover(inst, err, old)
+    }
     inst.element = this.elementOf(inst.vnode)
+  }
+
+  /**
+   * Error boundary: if `inst` defines onError, drop its whole subtree and
+   * render the fallback in its place. Otherwise rethrow to the caller, which is
+   * the parent's render when this ran as part of it.
+   */
+  private recover(inst: Instance, err: unknown, old: VNode | null): VNode {
+    if (!inst.def.onError) throw err
+    for (const id of [...inst.childIds]) {
+      const child = this.instances.get(id)
+      if (child) this.destroyInstance(child)
+    }
+    const error = err instanceof Error ? err : new Error(String(err))
+    let fallback: VioNodeDescriptor | null
+    try {
+      fallback = inst.def.onError(error, inst.ctx)
+    } catch (e) {
+      throw this.componentError(inst, 'onError', e)
+    }
+    const v = this.create(fallback ?? null, inst, inst.ns, inst.depth + 1)
+    if (old) {
+      const oldDom = domOf(old)
+      oldDom.parentNode?.replaceChild(domOf(v), oldDom)
+    }
+    this.bus.emit('component:error', { id: inst.id, name: inst.def.name, phase: 'boundary', message: error.message, handled: true })
+    return v
+  }
+
+  /** A component re-rendered on its own threw: hand the error to the nearest ancestor boundary. */
+  private escalate(inst: Instance, err: unknown): void {
+    for (let b = inst.parent; b; b = b.parent) {
+      if (b.def.onError && b.alive) {
+        b.vnode = this.recover(b, err, b.vnode)
+        b.element = this.elementOf(b.vnode)
+        return
+      }
+    }
+    throw err
   }
 
   private elementOf(v: VNode): Element | null {
@@ -406,6 +480,11 @@ export class Renderer {
   private destroyInstance(inst: Instance): void {
     if (!inst.alive) return
     if (inst.vnode) this.destroyVNode(inst.vnode)
+    // Instances created by a render that threw are not in the vnode tree yet.
+    for (const id of [...inst.childIds]) {
+      const child = this.instances.get(id)
+      if (child) this.destroyInstance(child)
+    }
     inst.alive = false
     try {
       inst.cleanup?.()

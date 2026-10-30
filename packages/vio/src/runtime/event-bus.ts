@@ -10,6 +10,7 @@ export class EventBus {
   private listeners = new Map<string, Set<EventHandler>>()
   private history: VioEvent[] = []
   private historySize: number
+  private seq = 0
 
   constructor(options: EventBusOptions = {}) {
     this.historySize = options.historySize ?? 100
@@ -29,20 +30,33 @@ export class EventBus {
     const event: VioEvent = {
       type: type as VioEvent['type'],
       payload,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      seq: ++this.seq
     }
 
-    if (this.historySize > 0) {
-      this.history.push(event)
-      if (this.history.length > this.historySize) {
-        this.history.shift()
-      }
-    }
+    this.record(event)
 
-    this.listeners.get(type)?.forEach(h => h(event))
+    this.listeners.get(type)?.forEach(h => this.call(h, event))
     if (type !== '*') {
-      this.listeners.get('*')?.forEach(h => h(event))
+      this.listeners.get('*')?.forEach(h => this.call(h, event))
     }
+  }
+
+  /** A throwing listener must not stop other listeners or the emitter. */
+  private call(handler: EventHandler, event: VioEvent): void {
+    try {
+      handler(event)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.record({ type: 'listener:error', payload: { event: event.type, message }, timestamp: Date.now(), seq: ++this.seq })
+      console.error(`[vio] listener for "${event.type}" threw:`, err)
+    }
+  }
+
+  private record(event: VioEvent): void {
+    if (this.historySize <= 0) return
+    this.history.push(event)
+    if (this.history.length > this.historySize) this.history.shift()
   }
 
   getHistory(): VioEvent[] {

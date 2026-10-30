@@ -79,9 +79,46 @@ Props: `class` takes a string, array, or `{ name: bool }`; `style` takes a strin
 
 **Routes:** guards return `true`, `false`, or a redirect path, and run even without a store. Unknown paths render nothing and emit `route:notfound`. Navigating between paths served by the same component keeps its state.
 
+## Agent API
+
+An agent can see, operate, and verify a running app without selectors or screenshots. `packages/vio/AGENTS.md` is the full contract in about 500 tokens.
+
+```ts
+app.manifest()
+// { route: '/', routes: ['/'], actions: { add: 'text:string · Add a todo', clear: 'confirm' }, components: [...] }
+
+app.see()
+// route=/
+// e1 app
+//  e2 main
+//   e4 form: e5 textbox "New todo" val="", e6 button "Add"
+//   e7 list
+//    e8 item "Buy milk": e9 checkbox, e10 button "Delete"
+
+await app.act('e9', 'click')           // returns a diff:
+// ~ e8 item .done "Buy milk"
+// ~ e9 checkbox [checked]
+
+await app.invoke('add', 'Eggs')        // named store action → diff; actions with meta.confirm need { confirm: true }
+await app.assert({ text: '1 left' })  // waits up to 1s → { pass: true } or { pass: false, detail }
+app.see({ diff: true })                // only what changed since the last snapshot
+```
+
+Refs stay stable while the element exists. Long lists page (`page`, `pageSize`), deep trees collapse (`depth`), `ref` scopes to a subtree, and password fields are redacted. Token budgets for the snapshot, diffs, manifest, `AGENTS.md`, and MCP tool definitions are enforced in tests.
+
+Describe store actions for agents with `meta`:
+
+```ts
+store: {
+  state: { todos: [] },
+  actions: { add: (s, text) => ({ ...s, todos: [...s.todos, text] }), clear: (s) => ({ ...s, todos: [] }) },
+  meta: { add: { params: 'text:string', doc: 'Add a todo' }, clear: { confirm: true } }
+}
+```
+
 ## Runtime API
 
-AI agents can control a running Vio app programmatically:
+Lower-level control of a running app:
 
 ```ts
 // State management
@@ -102,7 +139,7 @@ app.getComponentTree()
 // Event observation
 app.on('state:change', (event) => console.log(event))
 
-// Batch: validates every op first, then applies them with a single render
+// Batch: validates every op first, applies them with a single render, rolls back state if one throws
 app.batch([
   { action: 'setState', target: id, payload: { count: 10 } },
   { action: 'dispatch', payload: { action: 'toggleTheme' } }
@@ -160,24 +197,21 @@ connectDevtools(app)
 
 | Tool | Description |
 |------|-------------|
-| `vio_get_state` | Get component local state by instance ID |
-| `vio_set_state` | Merge partial state into a component |
-| `vio_get_store` | Read global store state |
-| `vio_dispatch` | Dispatch a store action |
-| `vio_navigate` | Navigate to a route |
-| `vio_get_component_tree` | Full component tree with IDs and state |
-| `vio_get_registered_components` | List all registered component names |
-| `vio_remove_component` | Unmount a component by instance ID |
-| `vio_batch` | Validate, then apply several operations with one render |
-| `vio_emit` | Emit an event on the event bus |
-| `vio_get_event_history` | Get recent event bus history |
+| `vio_manifest` | Routes, store actions, mounted components |
+| `vio_see` | Text snapshot with refs; `diff`, `ref`, `depth`, `page` |
+| `vio_act` | click / fill / check / select / press / … by ref; returns a diff |
+| `vio_invoke` | Run a store action by name; returns a diff |
+| `vio_assert` | Wait for text / route / state / ref / count conditions |
+| `vio_state` | Read store or component state by JSON Pointer; patch component state |
+| `vio_nav` | Navigate; returns a diff |
+| `vio_debug` | Component tree, recent events, or errors |
 
 ## Why AI-Agent-First?
 
 1. **JSON-native** — `{ tag, props, children }`. Any LLM can produce valid component trees.
-2. **Pure renders** — `render(state) → tree`. Same input, same output. Deterministic.
+2. **Pure renders** — `render(state, ctx) → tree`. Same input, same output. Deterministic.
 3. **Full introspection** — Agents can see every mounted component, its state, and props via `getComponentTree()`.
-4. **Full control** — `setState`, `dispatch`, `navigate`, `batch` — all programmatic.
+4. **Full control** — `see`, `act`, `invoke`, `assert`, plus `setState`, `dispatch`, `navigate`, `batch`.
 5. **Serializable output** — Trees, state, and events are plain data (functions are dropped from introspection). Works over any transport.
 6. **MCP-ready** — Connect `@atrotos/vio-devtools` and any MCP client can control your app live.
 

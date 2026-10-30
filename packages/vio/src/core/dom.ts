@@ -20,8 +20,12 @@ const CONTROLLED_PROPS = new Set(['value', 'checked', 'selected', 'indeterminate
 const IGNORED_PROPS = new Set(['key', 'ref', 'children'])
 
 const LISTENERS = Symbol('vio.listeners')
+const CONTROLLED = Symbol('vio.controlled')
 
-type ListenerHost = Element & { [LISTENERS]?: Record<string, EventListener | null> }
+type ListenerHost = Element & {
+  [LISTENERS]?: Record<string, EventListener | null>
+  [CONTROLLED]?: Record<string, unknown>
+}
 
 export function childNamespace(tag: string, parentNs: string | null): string | null {
   if (tag === 'svg') return SVG_NS
@@ -75,6 +79,21 @@ function setEvent(el: ListenerHost, key: string, value: unknown): void {
 function dispatchEvent(this: ListenerHost, event: Event): void {
   const handler = this[LISTENERS]?.[event.type]
   if (handler) handler.call(this, event)
+  // Renders are synchronous, so by now state has been applied. If the handler
+  // did not accept the user's edit, put the controlled value back (like React).
+  const wanted = this[CONTROLLED]
+  if (wanted) for (const key in wanted) writeControlled(this, key, wanted[key])
+}
+
+function writeControlled(el: Element, key: string, next: unknown): void {
+  const live = el as unknown as Record<string, unknown>
+  if (key === 'value') {
+    const v = next === null || next === undefined ? '' : String(next)
+    if (live.value !== v) live.value = v
+  } else {
+    const v = Boolean(next)
+    if (live[key] !== v) live[key] = v
+  }
 }
 
 function classValue(value: unknown): string {
@@ -148,14 +167,13 @@ export function setProp(el: Element, key: string, next: unknown, prev: unknown, 
   }
 
   if (CONTROLLED_PROPS.has(key) && key in el) {
-    const live = el as unknown as Record<string, unknown>
-    if (key === 'value') {
-      const v = next === null || next === undefined ? '' : String(next)
-      if (live.value !== v) live.value = v
+    const host = el as ListenerHost
+    if (next === undefined) {
+      if (host[CONTROLLED]) delete host[CONTROLLED][key]
     } else {
-      const v = Boolean(next)
-      if (live[key] !== v) live[key] = v
+      (host[CONTROLLED] ??= {})[key] = next
     }
+    writeControlled(el, key, next)
     return
   }
 
@@ -190,4 +208,10 @@ export function updateProps(
   for (const [key, value] of Object.entries(next)) {
     if (value !== prev[key] || CONTROLLED_PROPS.has(key)) setProp(el, key, value, prev[key], report)
   }
+}
+
+/** Event types this element has a live handler for (used by agent snapshots). */
+export function listenedEvents(el: Element): string[] {
+  const map = (el as ListenerHost)[LISTENERS]
+  return map ? Object.keys(map).filter(type => map[type]) : []
 }

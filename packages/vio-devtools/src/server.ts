@@ -16,8 +16,10 @@ export function registerTools(server: McpServer, bridge: WsBridge): void {
       async (params: Record<string, unknown>) => {
         try {
           const result = await bridge.call(tool.wsMethod, params)
+          // Snapshots are already compact text; everything else as one-line JSON.
+          const text = typeof result === 'string' ? result : JSON.stringify(result) ?? 'null'
           return {
-            content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }]
+            content: [{ type: 'text' as const, text }]
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)

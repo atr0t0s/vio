@@ -7,92 +7,88 @@ export interface ToolDef {
   inputSchema: Record<string, ZodType>
 }
 
+// Kept deliberately small: every schema is paid for in tokens on every turn.
 export const TOOLS: ToolDef[] = [
   {
-    name: 'vio_get_state',
-    description: 'Get the local state of a component by its instance ID',
-    wsMethod: 'getState',
-    inputSchema: {
-      instanceId: z.string().describe('Instance ID from the tree, e.g. "App/TodoList/Item[3]"')
-    }
-  },
-  {
-    name: 'vio_set_state',
-    description: 'Update the local state of a component (partial merge)',
-    wsMethod: 'setState',
-    inputSchema: {
-      instanceId: z.string().describe('Component instance ID'),
-      state: z.record(z.unknown()).describe('Partial state to merge')
-    }
-  },
-  {
-    name: 'vio_get_store',
-    description: 'Get the global store state',
-    wsMethod: 'getStore',
+    name: 'vio_manifest',
+    description: 'Routes, store actions, components. Call first.',
+    wsMethod: 'manifest',
     inputSchema: {}
   },
   {
-    name: 'vio_dispatch',
-    description: 'Dispatch an action to the global store',
-    wsMethod: 'dispatch',
+    name: 'vio_see',
+    description: 'UI as text lines like: e5 button "Add". diff: only changes since last see.',
+    wsMethod: 'see',
     inputSchema: {
-      action: z.string().describe('Action name (e.g. "addTodo")'),
-      payload: z.unknown().optional().describe('Action payload')
+      diff: z.boolean().optional(),
+      ref: z.string().optional(),
+      depth: z.number().optional(),
+      page: z.number().optional()
     }
   },
   {
-    name: 'vio_navigate',
-    description: 'Navigate to a route path; success is false when no route matches',
-    wsMethod: 'navigate',
+    name: 'vio_act',
+    description: 'Act on an element by ref. Returns UI diff.',
+    wsMethod: 'act',
     inputSchema: {
-      path: z.string().describe('Route path (e.g. "/dashboard")')
+      ref: z.string(),
+      action: z.enum(['click', 'fill', 'check', 'uncheck', 'select', 'press', 'focus', 'blur', 'hover', 'submit']),
+      value: z.string().optional().describe('fill text, select option, press key')
     }
   },
   {
-    name: 'vio_get_component_tree',
-    description: 'Get the nested component tree: id, name, state, props, key, children',
-    wsMethod: 'getComponentTree',
-    inputSchema: {}
-  },
-  {
-    name: 'vio_get_registered_components',
-    description: 'List all registered component names',
-    wsMethod: 'getRegisteredComponents',
-    inputSchema: {}
-  },
-  {
-    name: 'vio_remove_component',
-    description: 'Unmount and remove a component by instance ID',
-    wsMethod: 'removeComponent',
+    name: 'vio_invoke',
+    description: 'Run a store action. Returns UI diff. Prefer over clicking.',
+    wsMethod: 'invoke',
     inputSchema: {
-      instanceId: z.string().describe('Component instance ID to remove')
+      action: z.string(),
+      payload: z.unknown().optional(),
+      confirm: z.boolean().optional().describe('only after user approval')
     }
   },
   {
-    name: 'vio_batch',
-    description: 'Validate then apply operations with one render. dispatch payload: {action, payload}',
-    wsMethod: 'batch',
+    name: 'vio_assert',
+    description: 'Wait up to timeout ms (1000) for all conditions. state: JSON Pointer into store, or into component "of". equals: state value, or ref input value. count: lines with role. Returns {pass, detail}.',
+    wsMethod: 'assert',
     inputSchema: {
-      operations: z.array(z.object({
-        action: z.enum(['setState', 'dispatch', 'removeComponent', 'navigate']),
-        target: z.string().optional().describe('Component ID or route path'),
-        payload: z.unknown().optional().describe('Action-specific payload')
-      })).describe('Array of operations to execute')
+      text: z.string().optional(),
+      route: z.string().optional(),
+      state: z.string().optional(),
+      of: z.string().optional(),
+      equals: z.unknown().optional(),
+      ref: z.string().optional(),
+      checked: z.boolean().optional(),
+      role: z.string().optional(),
+      count: z.number().optional(),
+      not: z.boolean().optional(),
+      timeout: z.number().optional()
     }
   },
   {
-    name: 'vio_emit',
-    description: 'Emit an event on the event bus',
-    wsMethod: 'emit',
+    name: 'vio_state',
+    description: 'Read store (or component id) at JSON Pointer path. set: merge into component state.',
+    wsMethod: 'state',
     inputSchema: {
-      event: z.string().describe('Event type (e.g. "state:change")'),
-      payload: z.record(z.unknown()).optional().describe('Event payload')
+      id: z.string().optional(),
+      path: z.string().optional(),
+      set: z.record(z.unknown()).optional()
     }
   },
   {
-    name: 'vio_get_event_history',
-    description: 'Get recent event bus history (last 100 events)',
-    wsMethod: 'getEventHistory',
-    inputSchema: {}
+    name: 'vio_nav',
+    description: 'Go to a route path. Returns UI diff.',
+    wsMethod: 'nav',
+    inputSchema: {
+      path: z.string()
+    }
+  },
+  {
+    name: 'vio_debug',
+    description: 'tree: component ids and state. events/errors: recent bus events.',
+    wsMethod: 'debug',
+    inputSchema: {
+      what: z.enum(['tree', 'events', 'errors']),
+      limit: z.number().optional()
+    }
   }
 ]

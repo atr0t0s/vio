@@ -4,6 +4,21 @@ import { Renderer } from './renderer'
 import { EventBus } from '../runtime/event-bus'
 import { Store } from '../reactivity/store'
 import { Router } from '../router/router'
+import { Snapshotter } from '../agent/snapshot'
+import type { SeeOptions, ActKind } from '../agent/snapshot'
+import { getPointer, deepEqual, short, settle, waitFor } from '../agent/protocol'
+import type { AssertCondition, AssertResult } from '../agent/protocol'
+import { toPlain } from './renderer'
+
+export interface Manifest {
+  route: string | null
+  /** Guarded routes are suffixed with " (guard)". */
+  routes: string[]
+  /** Store action name → "params · doc · confirm" (empty when undocumented). */
+  actions: Record<string, string>
+  /** Component names currently mounted. */
+  components: string[]
+}
 
 export interface VioApp {
   mount(): void
@@ -25,6 +40,18 @@ export interface VioApp {
   /** Validates every op first, then applies them with a single render. */
   batch(ops: BatchOperation[]): void
   getEventHistory(): { type: string; payload: Record<string, unknown>; timestamp: number }[]
+
+  // --- Agent protocol ---
+  /** Compact text snapshot with refs (`button#e5 "Add"`); `{ diff: true }` returns only changes. */
+  see(opts?: SeeOptions): string
+  /** Act on an element by ref, then return a snapshot diff. */
+  act(ref: string, action: ActKind, value?: string): Promise<string>
+  /** Run a named store action (checking `confirm` policy), then return a snapshot diff. */
+  invoke(action: string, payload?: unknown, opts?: { confirm?: boolean }): Promise<string>
+  /** Wait until a condition holds (default 1s); never throws for a failed check. */
+  assert(cond: AssertCondition): Promise<AssertResult>
+  /** Routes, actions, and mounted components in one small object. */
+  manifest(): Manifest
 }
 
 const BATCH_ACTIONS = new Set(['setState', 'removeComponent', 'dispatch', 'navigate'])
@@ -52,7 +79,9 @@ export function createApp(config: AppConfig): VioApp {
   const renderer = new Renderer(rootEl, bus, {
     getStore: store ? () => store.getState() : undefined,
     dispatch: store ? (action, payload) => store.dispatch(action, payload) : undefined,
-    getRoute: () => route ?? { path: '/', params: {}, query: {} }
+    getRoute: () => route ?? { path: '/', params: {}, query: {} },
+    // Subscribe directly: bus listeners are error-isolated, render errors must reach the caller.
+    subscribeStore: store ? (cb) => store.subscribe(cb) : undefined
   })
 
   if (router && store) {
@@ -60,6 +89,57 @@ export function createApp(config: AppConfig): VioApp {
   }
 
   let hashCleanup: (() => void) | null = null
+
+  const snap = new Snapshotter(rootEl, () => `route=${lastPath ?? '-'}`)
+
+  function componentNames(): string[] {
+    const names = new Set<string>()
+    const visit = (node: ComponentTreeNode) => {
+      if (node.name) names.add(node.name)
+      node.children.forEach(visit)
+    }
+    const tree = renderer.getTree()
+    if (tree) visit(tree)
+    return [...names]
+  }
+
+  function check(cond: AssertCondition): AssertResult {
+    const fail = (detail: string): AssertResult => ({ pass: false, detail })
+    const norm = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim()
+    // textContent glues adjacent elements together ("AddAll"); join text nodes with spaces instead.
+    const textOf = (el: Node) => {
+      const parts: string[] = []
+      const walker = el.ownerDocument!.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      while (walker.nextNode()) parts.push(walker.currentNode.textContent ?? '')
+      return norm(parts.join(' '))
+    }
+
+    if (cond.ref !== undefined) {
+      const el = snap.resolve(cond.ref) as HTMLInputElement
+      if (cond.text !== undefined && !textOf(el).includes(norm(cond.text))) return fail(`${cond.ref} text is ${short(textOf(el))}`)
+      if (cond.value !== undefined && el.value !== cond.value) return fail(`${cond.ref} value is ${short(el.value)}`)
+      if (cond.checked !== undefined && el.checked !== cond.checked) return fail(`${cond.ref} checked is ${el.checked}`)
+    } else if (cond.text !== undefined) {
+      const page = textOf(rootEl)
+      if (!page.includes(norm(cond.text))) return fail(`text not found; page: ${short(page)}`)
+    }
+    if (cond.route !== undefined && route?.path !== cond.route) return fail(`route is ${route?.path ?? 'none'}`)
+    if (cond.state !== undefined) {
+      if (cond.of !== undefined && !renderer.getInstance(cond.of)) return fail(`no instance "${cond.of}"`)
+      const doc = cond.of !== undefined ? renderer.getInstance(cond.of)!.state : (store?.getState() ?? {})
+      const value = getPointer(doc, cond.state)
+      if ('equals' in cond) {
+        if (!deepEqual(toPlain(value), cond.equals)) return fail(`${cond.state} is ${short(value)}`)
+      } else if (value === undefined) {
+        return fail(`${cond.state} is missing`)
+      }
+    }
+    if (cond.role !== undefined) {
+      const n = snap.count(cond.role)
+      if (cond.count !== undefined ? n !== cond.count : n === 0) return fail(`${n} ${cond.role}`)
+    }
+    return { pass: true }
+  }
 
   function navigateTo(path: string): boolean {
     if (!router) return false
@@ -203,33 +283,84 @@ export function createApp(config: AppConfig): VioApp {
 
       bus.emit('batch:start', { operations: ops.length })
       let navigated = false
-      renderer.batch(() => {
-        for (const op of ops) {
-          switch (op.action) {
-            case 'setState':
-              renderer.setState(op.target!, op.payload as Record<string, unknown>)
-              break
-            case 'dispatch': {
-              const p = op.payload as { action: string; payload?: unknown; value?: unknown }
-              store!.dispatch(p.action, 'payload' in p ? p.payload : p.value)
-              break
+      const savedStore = store?.getState()
+      const savedStates = renderer.captureStates()
+      try {
+        renderer.batch(() => {
+          for (const op of ops) {
+            switch (op.action) {
+              case 'setState':
+                renderer.setState(op.target!, op.payload as Record<string, unknown>)
+                break
+              case 'dispatch': {
+                const p = op.payload as { action: string; payload?: unknown; value?: unknown }
+                store!.dispatch(p.action, 'payload' in p ? p.payload : p.value)
+                break
+              }
+              case 'removeComponent':
+                renderer.unmount(op.target!)
+                break
+              case 'navigate':
+                navigateTo(op.target!)
+                navigated = true
+                break
             }
-            case 'removeComponent':
-              renderer.unmount(op.target!)
-              break
-            case 'navigate':
-              navigateTo(op.target!)
-              navigated = true
-              break
           }
-        }
-      })
+        })
+      } catch (err) {
+        // State ops are undone; unmounts and navigation are not reversible.
+        if (store && savedStore) store.replace(savedStore)
+        renderer.restoreStates(savedStates)
+        bus.emit('batch:end', { operations: ops.length, error: err instanceof Error ? err.message : String(err) })
+        throw err
+      }
       if (navigated) syncHash()
       bus.emit('batch:end', { operations: ops.length })
     },
 
     getEventHistory() {
       return bus.getHistory()
+    },
+
+    see(opts) {
+      return snap.see(opts)
+    },
+
+    async act(ref, action, value) {
+      snap.act(ref, action, value)
+      await settle()
+      return snap.see({ diff: true })
+    },
+
+    async invoke(action, payload, opts) {
+      if (!store) throw new Error('E_NO_STORE: no store configured')
+      if (!store.hasAction(action)) {
+        throw new Error(`E_UNKNOWN_ACTION: "${action}"; available: ${store.actionNames().join(', ')}`)
+      }
+      if (store.meta[action]?.confirm && !opts?.confirm) {
+        throw new Error(`E_CONFIRM: "${action}" needs confirmation; ask the user, then call again with { confirm: true }`)
+      }
+      store.dispatch(action, payload)
+      await settle()
+      return snap.see({ diff: true })
+    },
+
+    assert(cond) {
+      return waitFor(() => check(cond), cond)
+    },
+
+    manifest() {
+      const actions: Record<string, string> = {}
+      for (const name of store?.actionNames() ?? []) {
+        const m = store!.meta[name]
+        actions[name] = m ? [m.params, m.doc, m.confirm ? 'confirm' : ''].filter(Boolean).join(' · ') : ''
+      }
+      return {
+        route: lastPath,
+        routes: (config.routes ?? []).map(r => r.guard ? `${r.path} (guard)` : r.path),
+        actions,
+        components: componentNames()
+      }
     }
   }
 }
