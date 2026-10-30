@@ -13,7 +13,7 @@ export const TOOLS: ToolDef[] = [
     description: 'Get the local state of a component by its instance ID',
     wsMethod: 'getState',
     inputSchema: {
-      instanceId: z.string().describe('Component instance ID (e.g. "AppRoot-1")')
+      instanceId: z.string().describe('Instance ID from the tree, e.g. "App/TodoList/Item[3]"')
     }
   },
   {
@@ -42,7 +42,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_navigate',
-    description: 'Navigate to a route path',
+    description: 'Navigate to a route path; success is false when no route matches',
     wsMethod: 'navigate',
     inputSchema: {
       path: z.string().describe('Route path (e.g. "/dashboard")')
@@ -50,7 +50,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_get_component_tree',
-    description: 'Get the component tree with IDs, names, and state',
+    description: 'Get the nested component tree: id, name, state, props, key, children',
     wsMethod: 'getComponentTree',
     inputSchema: {}
   },
@@ -70,7 +70,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_batch',
-    description: 'Execute multiple operations atomically. Actions: setState, dispatch, removeComponent, navigate',
+    description: 'Validate then apply operations with one render. dispatch payload: {action, payload}',
     wsMethod: 'batch',
     inputSchema: {
       operations: z.array(z.object({

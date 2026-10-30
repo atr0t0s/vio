@@ -3,7 +3,7 @@ interface VioAppLike {
   setState(instanceId: string, partial: Record<string, unknown>): void
   getStore(): Record<string, unknown>
   dispatch(action: string, payload?: unknown): void
-  navigate(path: string): void
+  navigate(path: string): unknown
   getComponentTree(): { id: string; name: string; state: Record<string, unknown>; children: unknown[] }
   getRegisteredComponents(): string[]
   removeComponent(instanceId: string): void
@@ -33,7 +33,7 @@ const METHOD_MAP: Record<string, MethodHandler> = {
   setState: (app, p) => { app.setState(p.instanceId as string, p.state as Record<string, unknown>); return { success: true } },
   getStore: (app) => app.getStore(),
   dispatch: (app, p) => { app.dispatch(p.action as string, p.payload); return { success: true } },
-  navigate: (app, p) => { app.navigate(p.path as string); return { success: true } },
+  navigate: (app, p) => ({ success: app.navigate(p.path as string) !== false }),
   getComponentTree: (app) => app.getComponentTree(),
   getRegisteredComponents: (app) => app.getRegisteredComponents(),
   removeComponent: (app, p) => { app.removeComponent(p.instanceId as string); return { success: true } },
@@ -42,9 +42,17 @@ const METHOD_MAP: Record<string, MethodHandler> = {
   getEventHistory: (app) => app.getEventHistory()
 }
 
-export function connectDevtools(app: VioAppLike, options?: { port?: number; onError?: (err: Event) => void }): DevtoolsConnection {
+export interface DevtoolsOptions {
+  port?: number
+  /** Must match VIO_DEVTOOLS_TOKEN on the server when that is set. */
+  token?: string
+  onError?: (err: Event) => void
+}
+
+export function connectDevtools(app: VioAppLike, options?: DevtoolsOptions): DevtoolsConnection {
   const port = options?.port ?? DEFAULT_PORT
-  const ws = new WebSocket(`ws://localhost:${port}`)
+  const query = options?.token ? `?token=${encodeURIComponent(options.token)}` : ''
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${query}`)
 
   ws.onerror = (err) => {
     if (options?.onError) {
@@ -56,8 +64,14 @@ export function connectDevtools(app: VioAppLike, options?: { port?: number; onEr
 
   ws.onmessage = (event: MessageEvent | { data: string }) => {
     const data = typeof event === 'object' && 'data' in event ? event.data : event
-    const req = JSON.parse(data as string) as WsRequest
-    const handler = METHOD_MAP[req.method]
+    let req: WsRequest
+    try {
+      req = JSON.parse(data as string) as WsRequest
+    } catch {
+      return
+    }
+    if (!req || typeof req.id !== 'number' || typeof req.method !== 'string') return
+    const handler = Object.prototype.hasOwnProperty.call(METHOD_MAP, req.method) ? METHOD_MAP[req.method] : undefined
 
     if (!handler) {
       ws.send(JSON.stringify({ id: req.id, error: { message: `Unknown method: ${req.method}` } }))
@@ -65,7 +79,7 @@ export function connectDevtools(app: VioAppLike, options?: { port?: number; onEr
     }
 
     try {
-      const result = handler(app, req.params)
+      const result = handler(app, req.params ?? {})
       ws.send(JSON.stringify({ id: req.id, result }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

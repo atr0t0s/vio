@@ -1,4 +1,4 @@
-export type RenderFunction = (state: Record<string, unknown>, store?: Record<string, unknown>) => VioNodeDescriptor
+export type RenderFunction = (state: Record<string, unknown>, ctx: ComponentContext) => VioNodeDescriptor | null
 
 export interface VioNodeDescriptor {
   tag: string | RenderFunction | ComponentDef
@@ -7,7 +7,7 @@ export interface VioNodeDescriptor {
   key?: string | number
 }
 
-export type VioChild = VioNodeDescriptor | string | number | boolean | null | undefined
+export type VioChild = VioNodeDescriptor | string | number | boolean | null | undefined | VioChild[]
 
 export interface ComponentDef {
   name: string
@@ -18,26 +18,58 @@ export interface ComponentDef {
   onUnmount?: (ctx: ComponentContext) => void
 }
 
+export interface RouteInfo {
+  path: string
+  params: Record<string, string>
+  query: Record<string, string>
+}
+
+/** Passed as the second argument to `render` and to every lifecycle hook. */
 export interface ComponentContext {
+  readonly id: string
+  /** Props from the parent (route components get `{ params, query }`). */
+  readonly props: Record<string, unknown>
+  /** Snapshot of the global store (`{}` when none is configured). */
+  readonly store: Record<string, unknown>
+  readonly route: RouteInfo
   setState: (partial: Record<string, unknown>) => void
   getState: () => Record<string, unknown>
+  dispatch: (action: string, payload?: unknown) => void
   emit: (event: string, payload?: unknown) => void
-  getRef: (name: string) => HTMLElement | null
+  /** Element registered with `props: { ref: 'name' }` in this component's output. */
+  getRef: (name: string) => Element | null
 }
 
 export interface ComponentInstance {
   id: string
   def: ComponentDef
   state: Record<string, unknown>
+  props: Record<string, unknown>
+  /** Last descriptor returned by `render`. */
   node: VioNodeDescriptor | null
-  element: HTMLElement | null
+  element: Element | null
+  parentId: string | null
+  childIds: string[]
+  key?: string | number
   cleanup?: () => void
 }
+
+export interface ComponentTreeNode {
+  id: string
+  name: string
+  state: Record<string, unknown>
+  props?: Record<string, unknown>
+  key?: string | number
+  children: ComponentTreeNode[]
+}
+
+/** Return `true` to allow, `false` to skip the route, or a path string to redirect. */
+export type RouteGuard = (store: Record<string, unknown>) => boolean | string
 
 export interface Route {
   path: string
   component: ComponentDef
-  guard?: (store: Record<string, unknown>) => boolean
+  guard?: RouteGuard
 }
 
 export interface StoreAction {
@@ -61,11 +93,15 @@ export type VioEventType =
   | 'component:mount'
   | 'component:update'
   | 'component:unmount'
+  | 'component:error'
   | 'route:before'
   | 'route:change'
   | 'route:after'
+  | 'route:notfound'
+  | 'security:blocked'
   | 'batch:start'
   | 'batch:end'
+  | 'app:destroy'
 
 export interface VioEvent {
   type: VioEventType | string
@@ -74,7 +110,8 @@ export interface VioEvent {
 }
 
 export interface BatchOperation {
-  action: 'setState' | 'addComponent' | 'removeComponent' | 'updateProps' | 'dispatch' | 'navigate'
+  action: 'setState' | 'removeComponent' | 'dispatch' | 'navigate'
   target?: string
+  /** For `dispatch`: `{ action, payload }` (`value` is accepted as a legacy alias). */
   payload?: unknown
 }

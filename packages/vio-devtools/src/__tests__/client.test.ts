@@ -95,3 +95,15 @@ describe('connectDevtools', () => {
     expect(ws.readyState).toBe(MockWebSocket.CLOSED)
   })
 })
+
+describe('connectDevtools hardening', () => {
+  it('passes the token and ignores malformed or prototype method names', () => {
+    const app = { getStore: vi.fn() } as any
+    const conn = connectDevtools(app, { token: 'a b' })
+    const ws = conn.ws as unknown as MockWebSocket
+    expect(ws.url).toBe('ws://127.0.0.1:3100?token=a%20b')
+    ws.onmessage?.({ data: 'garbage' })
+    ws.onmessage?.({ data: JSON.stringify({ id: 9, method: 'constructor', params: {} }) })
+    expect(JSON.parse(ws.sent[0]!)).toEqual({ id: 9, error: { message: 'Unknown method: constructor' } })
+  })
+})

@@ -8,6 +8,8 @@ export interface RouteMatch {
   query: Record<string, string>
 }
 
+const MAX_REDIRECTS = 10
+
 export class Router {
   private routes: Route[]
   private bus: EventBus
@@ -23,25 +25,34 @@ export class Router {
     this.storeGetter = getter
   }
 
+  /**
+   * Find the route for `path`. Guards always run (against `{}` when no store
+   * is configured); a guard returning a string redirects, up to 10 hops.
+   */
   resolve(path: string): RouteMatch | null {
-    const [pathname, search] = path.split('?')
+    let target = path
+    for (let hops = 0; hops <= MAX_REDIRECTS; hops++) {
+      const result = this.match(target)
+      if (result === null || typeof result === 'object') return result
+      target = result
+    }
+    throw new Error(`E_REDIRECT_LOOP: more than ${MAX_REDIRECTS} redirects starting at "${path}"`)
+  }
+
+  private match(path: string): RouteMatch | string | null {
+    const [pathname = '/', search] = path.split('?')
     const query = parseQuery(search ?? '')
+    const store = this.storeGetter ? this.storeGetter() : {}
 
     for (const route of this.routes) {
-      if (route.path === '*') {
-        if (route.guard && this.storeGetter && !route.guard(this.storeGetter())) {
-          continue
-        }
-        return { component: route.component, params: {}, path: pathname!, query }
+      const params = route.path === '*' ? {} : matchPath(route.path, pathname)
+      if (params === null) continue
+      if (route.guard) {
+        const verdict = route.guard(store)
+        if (typeof verdict === 'string') return verdict
+        if (verdict !== true) continue
       }
-
-      const params = matchPath(route.path, pathname!)
-      if (params !== null) {
-        if (route.guard && this.storeGetter && !route.guard(this.storeGetter())) {
-          continue
-        }
-        return { component: route.component, params, path: pathname!, query }
-      }
+      return { component: route.component, params, path: pathname, query }
     }
 
     return null
@@ -52,10 +63,10 @@ export class Router {
     const match = this.resolve(path)
 
     if (match) {
-      this.bus.emit('route:before', { from: prev?.path ?? null, to: path })
+      this.bus.emit('route:before', { from: prev?.path ?? null, to: match.path })
       this.current = match
-      this.bus.emit('route:change', { from: prev?.path ?? null, to: path, params: match.params })
-      this.bus.emit('route:after', { path, params: match.params })
+      this.bus.emit('route:change', { from: prev?.path ?? null, to: match.path, params: match.params })
+      this.bus.emit('route:after', { path: match.path, params: match.params })
     }
 
     return match
@@ -79,7 +90,7 @@ function matchPath(pattern: string, path: string): Record<string, string> | null
     const val = pathParts[i]!
 
     if (pat.startsWith(':')) {
-      params[pat.slice(1)] = val
+      params[pat.slice(1)] = safeDecode(val)
     } else if (pat !== val) {
       return null
     }
@@ -92,8 +103,18 @@ function parseQuery(search: string): Record<string, string> {
   const params: Record<string, string> = {}
   if (!search) return params
   for (const pair of search.split('&')) {
-    const [key, val] = pair.split('=')
-    if (key) params[decodeURIComponent(key)] = decodeURIComponent(val ?? '')
+    const eq = pair.indexOf('=')
+    const key = eq < 0 ? pair : pair.slice(0, eq)
+    const val = eq < 0 ? '' : pair.slice(eq + 1)
+    if (key) params[safeDecode(key.replace(/\+/g, ' '))] = safeDecode(val.replace(/\+/g, ' '))
   }
   return params
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }

@@ -71,3 +71,57 @@ describe('WsBridge', () => {
     client2.close()
   })
 })
+
+describe('WsBridge security', () => {
+  let bridge: WsBridge
+
+  afterEach(async () => {
+    await bridge?.close()
+  })
+
+  async function attempt(url: string, headers: Record<string, string> = {}): Promise<boolean> {
+    const { WebSocket } = await import('ws')
+    const client = new WebSocket(url, { headers })
+    return new Promise((resolve) => {
+      client.on('open', () => { client.close(); resolve(true) })
+      client.on('error', () => resolve(false))
+    })
+  }
+
+  it('rejects browser connections from non-local origins', async () => {
+    bridge = new WsBridge({ port: 0 })
+    const port = await bridge.start()
+    expect(await attempt(`ws://127.0.0.1:${port}`, { Origin: 'https://evil.example' })).toBe(false)
+    expect(await attempt(`ws://127.0.0.1:${port}`, { Origin: 'http://localhost:5173' })).toBe(true)
+  })
+
+  it('allows configured extra origins', async () => {
+    bridge = new WsBridge({ port: 0, allowedOrigins: ['https://dev.example'] })
+    const port = await bridge.start()
+    expect(await attempt(`ws://127.0.0.1:${port}`, { Origin: 'https://dev.example' })).toBe(true)
+  })
+
+  it('requires the token when one is configured', async () => {
+    bridge = new WsBridge({ port: 0, token: 's3cret' })
+    const port = await bridge.start()
+    expect(await attempt(`ws://127.0.0.1:${port}`)).toBe(false)
+    expect(await attempt(`ws://127.0.0.1:${port}?token=wrong!`)).toBe(false)
+    expect(await attempt(`ws://127.0.0.1:${port}?token=s3cret`)).toBe(true)
+  })
+
+  it('ignores malformed messages', async () => {
+    bridge = new WsBridge({ port: 0, timeout: 300 })
+    const port = await bridge.start()
+    const { WebSocket } = await import('ws')
+    const client = new WebSocket(`ws://127.0.0.1:${port}`)
+    await new Promise<void>((resolve) => client.on('open', resolve))
+    client.on('message', (data) => {
+      const msg = JSON.parse(data.toString())
+      client.send('not json')
+      client.send(JSON.stringify({ id: msg.id, result: 'ok' }))
+    })
+    await new Promise((r) => setTimeout(r, 50))
+    await expect(bridge.call('getStore', {})).resolves.toBe('ok')
+    client.close()
+  })
+})

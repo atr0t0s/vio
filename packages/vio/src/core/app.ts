@@ -1,4 +1,4 @@
-import type { AppConfig, ComponentDef, BatchOperation } from './types'
+import type { AppConfig, ComponentDef, BatchOperation, ComponentTreeNode, RouteInfo } from './types'
 import { ComponentRegistry } from './component'
 import { Renderer } from './renderer'
 import { EventBus } from '../runtime/event-bus'
@@ -7,6 +7,8 @@ import { Router } from '../router/router'
 
 export interface VioApp {
   mount(): void
+  /** Unmount everything, remove listeners, and clear the event bus. */
+  destroy(): void
   setState(instanceId: string, partial: Record<string, unknown>): void
   getState(instanceId: string): Record<string, unknown>
   dispatch(action: string, payload?: unknown): void
@@ -16,10 +18,19 @@ export interface VioApp {
   register(def: ComponentDef): void
   getRegisteredComponents(): string[]
   removeComponent(instanceId: string): void
-  getComponentTree(): { id: string; name: string; state: Record<string, unknown>; children: any[] }
-  navigate(path: string): void
+  getComponentTree(): ComponentTreeNode
+  getRoute(): RouteInfo | null
+  /** Returns false (and renders nothing) when no route matches. */
+  navigate(path: string): boolean
+  /** Validates every op first, then applies them with a single render. */
   batch(ops: BatchOperation[]): void
   getEventHistory(): { type: string; payload: Record<string, unknown>; timestamp: number }[]
+}
+
+const BATCH_ACTIONS = new Set(['setState', 'removeComponent', 'dispatch', 'navigate'])
+
+function hashPath(): string {
+  return window.location.hash.replace(/^#/, '') || '/'
 }
 
 export function createApp(config: AppConfig): VioApp {
@@ -32,57 +43,86 @@ export function createApp(config: AppConfig): VioApp {
 
   if (!rootEl) throw new Error(`Root element "${config.root}" not found`)
 
-  const renderer = new Renderer(rootEl, bus)
   const store = config.store ? new Store(config.store, bus) : null
   const router = config.routes ? new Router(config.routes, bus) : null
+  let route: RouteInfo | null = null
+  // Path (with query) of the last navigation, used to ignore our own hashchange echoes.
+  let lastPath: string | null = null
+
+  const renderer = new Renderer(rootEl, bus, {
+    getStore: store ? () => store.getState() : undefined,
+    dispatch: store ? (action, payload) => store.dispatch(action, payload) : undefined,
+    getRoute: () => route ?? { path: '/', params: {}, query: {} }
+  })
 
   if (router && store) {
     router.setStoreGetter(() => store.getState())
   }
 
-  let rootInstanceId: string | null = null
   let hashCleanup: (() => void) | null = null
-  let isProgrammaticHash = false
 
-  function navigateTo(path: string): void {
-    if (!router) return
+  function navigateTo(path: string): boolean {
+    if (!router) return false
     const match = router.navigate(path)
-    if (match) {
-      if (rootInstanceId) {
-        renderer.unmount(rootInstanceId)
-      }
-      const instance = renderer.mount(match.component)
-      rootInstanceId = instance.id
+    const rootId = renderer.getRootId()
+
+    if (!match) {
+      route = null
+      lastPath = path
+      if (rootId) renderer.unmount(rootId)
+      bus.emit('route:notfound', { path })
+      return false
+    }
+
+    route = { path: match.path, params: match.params, query: match.query }
+    const search = new URLSearchParams(match.query).toString()
+    lastPath = match.path + (search ? '?' + search : '')
+    const props = { params: match.params, query: match.query }
+    const current = rootId ? renderer.getInstance(rootId) : undefined
+
+    // Same component on the next route keeps its instance and local state.
+    if (current && current.def === match.component) {
+      renderer.setProps(current.id, props)
+    } else {
+      if (rootId) renderer.unmount(rootId)
+      renderer.mount(match.component, undefined, props)
+    }
+    return true
+  }
+
+  function syncHash(): void {
+    if (lastPath !== null && hashPath() !== lastPath) {
+      window.location.hash = '#' + lastPath
     }
   }
 
   return {
     mount() {
-      const hash = window.location.hash
-      const path = hash ? hash.replace(/^#/, '') || '/' : '/'
+      if (!router) return
+      navigateTo(hashPath())
+      syncHash()
 
-      if (router) {
+      const onHashChange = () => {
+        const path = hashPath()
+        if (path === lastPath) return
         navigateTo(path)
-
-        const onHashChange = () => {
-          if (isProgrammaticHash) {
-            isProgrammaticHash = false
-            return
-          }
-          const newHash = window.location.hash
-          const newPath = newHash ? newHash.replace(/^#/, '') || '/' : '/'
-          navigateTo(newPath)
-        }
-
-        window.addEventListener('hashchange', onHashChange)
-        hashCleanup = () => {
-          window.removeEventListener('hashchange', onHashChange)
-          hashCleanup = null
-        }
-      } else if (config.routes && config.routes.length > 0) {
-        const instance = renderer.mount(config.routes[0]!.component)
-        rootInstanceId = instance.id
+        syncHash()
       }
+
+      window.addEventListener('hashchange', onHashChange)
+      hashCleanup = () => {
+        window.removeEventListener('hashchange', onHashChange)
+        hashCleanup = null
+      }
+    },
+
+    destroy() {
+      hashCleanup?.()
+      renderer.destroy()
+      bus.emit('app:destroy', {})
+      bus.clear()
+      route = null
+      lastPath = null
     },
 
     setState(instanceId, partial) {
@@ -121,54 +161,70 @@ export function createApp(config: AppConfig): VioApp {
     },
 
     removeComponent(instanceId) {
+      const wasRoot = instanceId === renderer.getRootId()
       renderer.unmount(instanceId)
-      if (instanceId === rootInstanceId && hashCleanup) {
-        hashCleanup()
-      }
+      if (wasRoot) hashCleanup?.()
     },
 
     getComponentTree() {
-      if (!rootInstanceId) return { id: '', name: '', state: {}, children: [] }
-      const inst = renderer.getInstance(rootInstanceId)
-      if (!inst) return { id: '', name: '', state: {}, children: [] }
-      return {
-        id: inst.id,
-        name: inst.def.name,
-        state: { ...inst.state },
-        children: []
-      }
+      return renderer.getTree() ?? { id: '', name: '', state: {}, children: [] }
+    },
+
+    getRoute() {
+      return route ? { ...route } : null
     },
 
     navigate(path) {
       if (!router) throw new Error('No routes configured')
-      isProgrammaticHash = true
-      window.location.hash = '#' + path
-      navigateTo(path)
+      const ok = navigateTo(path)
+      syncHash()
+      return ok
     },
 
     batch(ops) {
-      bus.emit('batch:start', { operations: ops.length })
-      for (const op of ops) {
-        switch (op.action) {
-          case 'setState':
-            if (op.target) renderer.setState(op.target, op.payload as Record<string, unknown>)
-            break
-          case 'dispatch':
-            if (store && op.payload) {
-              const p = op.payload as { action: string; value?: unknown }
-              store.dispatch(p.action, p.value)
-            }
-            break
-          case 'removeComponent':
-            if (op.target) renderer.unmount(op.target)
-            break
-          case 'navigate':
-            if (router && op.target) {
-              navigateTo(op.target)
-            }
-            break
+      // Validate everything up front so a bad op cannot leave a half-applied batch.
+      ops.forEach((op, i) => {
+        const at = `batch[${i}]`
+        if (!BATCH_ACTIONS.has(op.action)) {
+          throw new Error(`E_BATCH_ACTION ${at}: unknown action "${op.action}" (use ${[...BATCH_ACTIONS].join(', ')})`)
         }
-      }
+        if ((op.action === 'setState' || op.action === 'removeComponent') && !(op.target && renderer.getInstance(op.target))) {
+          throw new Error(`E_NO_INSTANCE ${at}: no instance with id "${op.target}"`)
+        }
+        if (op.action === 'dispatch') {
+          const name = (op.payload as { action?: string } | undefined)?.action
+          if (!store) throw new Error(`E_NO_STORE ${at}: no store configured`)
+          if (!name || !store.hasAction(name)) throw new Error(`E_UNKNOWN_ACTION ${at}: unknown store action "${name}"`)
+        }
+        if (op.action === 'navigate' && (!router || !op.target)) {
+          throw new Error(`E_NAVIGATE ${at}: ${router ? 'missing target path' : 'no routes configured'}`)
+        }
+      })
+
+      bus.emit('batch:start', { operations: ops.length })
+      let navigated = false
+      renderer.batch(() => {
+        for (const op of ops) {
+          switch (op.action) {
+            case 'setState':
+              renderer.setState(op.target!, op.payload as Record<string, unknown>)
+              break
+            case 'dispatch': {
+              const p = op.payload as { action: string; payload?: unknown; value?: unknown }
+              store!.dispatch(p.action, 'payload' in p ? p.payload : p.value)
+              break
+            }
+            case 'removeComponent':
+              renderer.unmount(op.target!)
+              break
+            case 'navigate':
+              navigateTo(op.target!)
+              navigated = true
+              break
+          }
+        }
+      })
+      if (navigated) syncHash()
       bus.emit('batch:end', { operations: ops.length })
     },
 
