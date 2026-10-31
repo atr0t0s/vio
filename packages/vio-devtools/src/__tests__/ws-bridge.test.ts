@@ -125,3 +125,46 @@ describe('WsBridge security', () => {
     client.close()
   })
 })
+
+describe('WsBridge status', () => {
+  let bridge: WsBridge
+  afterEach(async () => { await bridge?.close() })
+
+  it('reports the connected page from its hello', async () => {
+    bridge = new WsBridge({ port: 0 })
+    const port = await bridge.start()
+    expect(bridge.status()).toMatch(/^no app connected/)
+    const { WebSocket } = await import('ws')
+    const client = new WebSocket(`ws://127.0.0.1:${port}`)
+    await new Promise<void>((resolve) => client.on('open', resolve))
+    client.send(JSON.stringify({ hello: { url: 'http://localhost:4005/#/', title: 'Vio Todo' } }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(bridge.status()).toMatch(/^connected: http:\/\/localhost:4005\/#\/ "Vio Todo" since \d{4}-/)
+    client.close()
+  })
+})
+
+describe('WsBridge standby', () => {
+  let bridge: WsBridge
+  afterEach(async () => { await bridge?.close() })
+
+  it('turns standby pages away while one is active, and lets them in once it leaves', async () => {
+    bridge = new WsBridge({ port: 0 })
+    const port = await bridge.start()
+    const { WebSocket } = await import('ws')
+    const active = new WebSocket(`ws://127.0.0.1:${port}`)
+    await new Promise<void>((resolve) => active.on('open', resolve))
+    const waiting = new WebSocket(`ws://127.0.0.1:${port}?standby=1`)
+    const code = await new Promise<number>((resolve) => waiting.on('close', resolve))
+    expect(code).toBe(4001)
+    expect(bridge.isConnected()).toBe(true)
+
+    active.close()
+    await new Promise((r) => setTimeout(r, 50))
+    const takeover = new WebSocket(`ws://127.0.0.1:${port}?standby=1`)
+    await new Promise<void>((resolve) => takeover.on('open', resolve))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(bridge.isConnected()).toBe(true)
+    takeover.close()
+  })
+})

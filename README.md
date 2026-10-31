@@ -224,13 +224,32 @@ connectDevtools(app)
 
 **Security:** the bridge binds to `127.0.0.1` only and rejects browser connections from non-localhost origins (add more with `VIO_DEVTOOLS_ORIGINS=https://a,https://b`). Set `VIO_DEVTOOLS_TOKEN` on the server and pass the same value as `connectDevtools(app, { token })` to require a token.
 
+### CLI
+
+Coding agents often work faster with shell commands than with MCP. `vio` drives the same running app through a local control port (`3101`), which both `vio serve` and the MCP server open.
+
+```bash
+npx vio serve                     # bridge only, if you are not running the MCP server
+npx vio status                    # which page is connected
+npx vio see --diff
+npx vio act button:Add click      # refs (e5) or queries: role[.class][:name], with > to scope
+npx vio act "group:Eggs>button.toggle" click
+npx vio invoke addTodo '"Milk"'
+npx vio assert text="1 item left" # prints pass / fail: …, exit code 2 on failure
+npx vio run examples/starter/agent/todo.flow.json
+```
+
+`vio run` executes a JSON flow (`{"steps": [{"act": ["textbox", "fill", "Milk"]}, {"assert": {"text": "Milk"}}]}`) and stops at the first failing step, so agent flows can be regression-tested. Exit codes: `0` ok, `1` error, `2` assertion failed.
+
+Only one page is driven at a time: the newest page to connect wins, and `vio status` shows which one. Pages reconnect automatically after the devtools server restarts. The control port refuses browser requests (any `Origin` header) and non-loopback `Host` headers, and requires `x-vio-token` when `VIO_DEVTOOLS_TOKEN` is set.
+
 ### Available Tools
 
 | Tool | Description |
 |------|-------------|
 | `vio_manifest` | Routes, store actions, mounted components |
 | `vio_see` | Text snapshot with refs; `diff`, `ref`, `depth`, `page` |
-| `vio_act` | click / fill / check / select / press / … by ref; returns a diff |
+| `vio_act` | click / fill / check / select / press / … by ref or `role:name` query; returns a diff |
 | `vio_invoke` | Run a store action by name; returns a diff |
 | `vio_assert` | Wait for text / route / state / ref / count conditions |
 | `vio_state` | Read store or component state by JSON Pointer; `set` or JSON `patch` component state |

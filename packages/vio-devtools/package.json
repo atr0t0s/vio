@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "vio-devtools": "./dist/cli.js"
+    "vio-devtools": "./dist/cli.js",
+    "vio": "./dist/cli.js"
   },
   "exports": {
     ".": {

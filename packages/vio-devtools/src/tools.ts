@@ -11,7 +11,7 @@ export interface ToolDef {
 export const TOOLS: ToolDef[] = [
   {
     name: 'vio_manifest',
-    description: 'Routes, store actions, components, docs. Call first.',
+    description: 'Routes, actions, components, docs. Call first.',
     wsMethod: 'manifest',
     inputSchema: {}
   },
@@ -28,7 +28,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'vio_act',
-    description: 'Act on an element by ref → UI diff.',
+    description: 'Act on element by ref or role:name → UI diff.',
     wsMethod: 'act',
     inputSchema: {
       ref: z.string(),

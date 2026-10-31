@@ -168,3 +168,38 @@ describe('manifest', () => {
     })
   })
 })
+
+describe('find', () => {
+  it('resolves role:name queries, with > scoping', async () => {
+    const app = makeTodoApp(3)
+    const snap = app.see()
+    expect(app.find('button:Add')).toBe(refFor(snap, 'button', 'Add'))
+    expect(app.find('textbox')).toBe(refFor(snap, 'textbox'))
+    expect(app.find('item:Task 2>button:delete')).toBe(refFor(snap, 'button', 'Task 2'))
+    expect(app.find('checkbox:task 3')).toBe(refFor(snap, 'checkbox', 'Task 3'))
+    // Class filters for controls without text
+    document.querySelectorAll('li')[1]!.querySelector('button')!.classList.add('danger')
+    expect(app.find('button.danger')).toBe(refFor(snap, 'button', 'Task 2'))
+    expect(app.find('item:Task 2>button.danger:delete')).toBe(refFor(snap, 'button', 'Task 2'))
+    expect(() => app.find('button.nope')).toThrow(/E_FIND: no button\.nope/)
+    const row = refFor(snap, 'item', 'Task 3')
+    expect(app.find(`${row}>button`)).toBe(refFor(snap, 'button', 'Task 3'))
+    expect(() => app.find('e999>button')).toThrow(/E_REF: e999/)
+  })
+
+  it('explains missing and ambiguous matches', () => {
+    const app = makeTodoApp(3)
+    expect(() => app.find('button:Save')).toThrow('E_FIND: no button:Save; call see() to check roles and names')
+    expect(() => app.find('button:Delete')).toThrow(/^E_AMBIGUOUS: button:Delete matches 3: e\d+ button "Delete"; e\d+ button "Delete"; e\d+ button "Delete"\. Add :name, \.class, or a parent> scope, or use a ref$/)
+  })
+
+  it('lets act and assert take queries instead of refs', async () => {
+    const app = makeTodoApp(1)
+    app.see()
+    await app.act('textbox', 'fill', 'Bread')
+    await app.act('button:Add', 'click')
+    expect(await app.assert({ ref: 'item:Bread>checkbox', checked: false })).toEqual({ pass: true })
+    await app.act('item:Bread>checkbox', 'check')
+    expect(await app.assert({ state: '/todos/1/done', equals: true })).toEqual({ pass: true })
+  })
+})

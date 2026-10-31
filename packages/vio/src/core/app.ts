@@ -48,7 +48,9 @@ export interface VioApp {
   // --- Agent protocol ---
   /** Compact text snapshot with refs (`button#e5 "Add"`); `{ diff: true }` returns only changes. */
   see(opts?: SeeOptions): string
-  /** Act on an element by ref, then return a snapshot diff. */
+  /** Ref for a `role:name` query like `button:Add` or `item:Milk>button:Delete`. */
+  find(query: string): string
+  /** Act on an element by ref or `role:name` query, then return a snapshot diff. */
   act(ref: string, action: ActKind, value?: string): Promise<string>
   /** Run a named store action (checking `confirm` policy), then return a snapshot diff. */
   invoke(action: string, payload?: unknown, opts?: { confirm?: boolean }): Promise<string>
@@ -341,6 +343,10 @@ export function createApp(config: AppConfig): VioApp {
 
     see(opts) {
       return snap.see(opts)
+    },
+
+    find(query) {
+      return snap.find(query)
     },
 
     async act(ref, action, value) {

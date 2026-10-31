@@ -105,8 +105,55 @@ export class Snapshotter {
     return ref
   }
 
-  /** Element for a ref, or a repair hint when it is gone. */
+  /**
+   * Ref for a query: `role[.class…][:name]`, e.g. `button:Add`, `textbox`,
+   * `button.delete`, `group:Eggs>button.toggle`, `e20>button`. Names match exactly
+   * (case-insensitive) first, then by substring. `>` narrows to descendants of
+   * the previous match. Fails with the candidates listed when nothing or more
+   * than one element matches.
+   */
+  find(query: string): string {
+    let scope = [this.build(this.root, 'app')]
+    const parts = query.split('>').map(p => p.trim())
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!
+      // A ref as a scope step (`e20>button.delete`) narrows to that element.
+      if (/^e\d+$/.test(part)) {
+        const found: SnapNode[] = []
+        const byRef = (n: SnapNode) => { if (n.ref === part) found.push(n); n.children.forEach(byRef) }
+        scope.forEach(byRef)
+        if (!found.length) throw new Error(`E_REF: ${part} is unknown or no longer on the page; call see() for fresh refs`)
+        scope = found
+        if (i === parts.length - 1) return part
+        continue
+      }
+      const colon = part.indexOf(':')
+      const [role = '', ...classes] = (colon < 0 ? part : part.slice(0, colon)).trim().split('.')
+      const name = colon < 0 ? null : part.slice(colon + 1).trim().toLowerCase()
+      const candidates: SnapNode[] = []
+      const fits = (c: SnapNode) => c.role === role && classes.every(cls => c.el.classList.contains(cls))
+      const collect = (n: SnapNode) => n.children.forEach(c => { if (fits(c)) candidates.push(c); collect(c) })
+      scope.forEach(collect)
+      let matches = candidates
+      if (name !== null) {
+        const named = candidates.map(c => [c, clip(nameOf(c), 200).toLowerCase()] as const)
+        const exact = named.filter(([, n]) => n === name).map(([c]) => c)
+        matches = exact.length ? exact : named.filter(([, n]) => n.includes(name)).map(([c]) => c)
+      }
+      const within = i > 0 ? ` inside ${parts.slice(0, i).join('>')}` : ''
+      if (matches.length === 0) throw new Error(`E_FIND: no ${part}${within}; call see() to check roles and names`)
+      if (matches.length > 1 && i === parts.length - 1) {
+        const list = matches.slice(0, 5).map(m => this.line(m, '')).join('; ')
+        throw new Error(`E_AMBIGUOUS: ${part}${within} matches ${matches.length}: ${list}${matches.length > 5 ? '; …' : ''}. Add :name, .class, or a parent> scope, or use a ref`)
+      }
+      scope = matches
+    }
+    return scope[0]!.ref
+  }
+
+  /** Element for a ref (`e12`) or a `role:name` query, or a repair hint when it is gone. */
   resolve(ref: string): Element {
+    if (!/^e\d+$/.test(ref)) ref = this.find(ref)
     const el = this.byRef.get(ref)
     if (!el || !el.isConnected) {
       throw new Error(`E_REF: ${ref} is unknown or no longer on the page; call see() for fresh refs`)

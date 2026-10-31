@@ -13,6 +13,7 @@ interface VioAppLike {
   on(event: string, handler: (e: unknown) => void): () => void
   getEventHistory(): { type: string; payload: Record<string, unknown>; timestamp: number; seq?: number }[]
   manifest(): unknown
+  find?(query: string): string
   see(opts?: Record<string, unknown>): string
   act(ref: string, action: string, value?: string): Promise<string>
   invoke(action: string, payload?: unknown, opts?: { confirm?: boolean }): Promise<string>
@@ -72,6 +73,10 @@ const METHOD_MAP: Record<string, MethodHandler> = {
 
   // Agent contract (used by the MCP tools)
   manifest: (app) => app.manifest(),
+  find: (app, p) => {
+    if (!app.find) throw new Error('E_FIND: this app version has no find(); update @atrotos/vio')
+    return app.find(p.query as string)
+  },
   see: (app, p) => app.see(p),
   act: (app, p) => app.act(p.ref as string, p.action as string, p.value as string | undefined),
   invoke: (app, p) => app.invoke(p.action as string, p.payload, { confirm: p.confirm === true }),
@@ -111,22 +116,25 @@ export interface DevtoolsOptions {
   /** Must match VIO_DEVTOOLS_TOKEN on the server when that is set. */
   token?: string
   onError?: (err: Event) => void
+  /** Reconnect with backoff when the devtools server restarts. Default true. */
+  reconnect?: boolean
 }
+
+/** Close code the bridge uses when a newer page takes over; such pages stay disconnected. */
+export const REPLACED_CODE = 4001
 
 export function connectDevtools(app: VioAppLike, options?: DevtoolsOptions): DevtoolsConnection {
   const port = options?.port ?? DEFAULT_PORT
   const query = options?.token ? `?token=${encodeURIComponent(options.token)}` : ''
-  const ws = new WebSocket(`ws://127.0.0.1:${port}${query}`)
+  const reconnect = options?.reconnect !== false
+  let ws: WebSocket
+  let stopped = false
+  let delay = 1000
+  let warned = false
+  // After being replaced, only take over once the other page is gone.
+  let standby = false
 
-  ws.onerror = (err) => {
-    if (options?.onError) {
-      options.onError(err)
-    } else {
-      console.warn('[vio-devtools] WebSocket error — is the devtools server running?')
-    }
-  }
-
-  ws.onmessage = (event: MessageEvent | { data: string }) => {
+  const handle = (event: MessageEvent | { data: string }) => {
     const data = typeof event === 'object' && 'data' in event ? event.data : event
     let req: WsRequest
     try {
@@ -136,16 +144,17 @@ export function connectDevtools(app: VioAppLike, options?: DevtoolsOptions): Dev
     }
     if (!req || typeof req.id !== 'number' || typeof req.method !== 'string') return
     const handler = Object.prototype.hasOwnProperty.call(METHOD_MAP, req.method) ? METHOD_MAP[req.method] : undefined
+    const socket = ws
 
     if (!handler) {
-      ws.send(JSON.stringify({ id: req.id, error: { message: `Unknown method: ${req.method}` } }))
+      socket.send(JSON.stringify({ id: req.id, error: { message: `Unknown method: ${req.method}` } }))
       return
     }
 
-    const reply = (result: unknown) => ws.send(JSON.stringify({ id: req.id, result }))
+    const reply = (result: unknown) => socket.send(JSON.stringify({ id: req.id, result }))
     const fail = (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
-      ws.send(JSON.stringify({ id: req.id, error: { message } }))
+      socket.send(JSON.stringify({ id: req.id, error: { message } }))
     }
     try {
       const result = handler(app, req.params ?? {})
@@ -156,8 +165,51 @@ export function connectDevtools(app: VioAppLike, options?: DevtoolsOptions): Dev
     }
   }
 
+  const open = () => {
+    const mode = standby ? (query ? '&standby=1' : '?standby=1') : ''
+    ws = new WebSocket(`ws://127.0.0.1:${port}${query}${mode}`)
+
+    // Tell the bridge which page this is, so `vio status` can show what is being driven.
+    ws.onopen = () => {
+      delay = 1000
+      warned = false
+      standby = false
+      const loc = typeof location !== 'undefined' ? location.href : undefined
+      const title = typeof document !== 'undefined' ? document.title : undefined
+      ws.send(JSON.stringify({ hello: { url: loc, title } }))
+    }
+
+    ws.onerror = (err) => {
+      if (options?.onError) {
+        options.onError(err)
+      } else if (!warned) {
+        warned = true
+        console.warn('[vio-devtools] WebSocket error — is the devtools server running?')
+      }
+    }
+
+    // Reconnect after server restarts, but not after another page took over
+    // (two tabs would otherwise keep kicking each other off).
+    ws.onclose = (event?: CloseEvent) => {
+      if (stopped || !reconnect) return
+      if (event?.code === REPLACED_CODE) {
+        if (!standby) console.warn('[vio-devtools] another page took over the devtools connection; standing by (reload to take it back)')
+        standby = true
+        setTimeout(() => { if (!stopped) open() }, 10000)
+        return
+      }
+      setTimeout(() => { if (!stopped) open() }, delay)
+      delay = Math.min(delay * 2, 10000)
+    }
+
+    ws.onmessage = handle
+  }
+
+  open()
+
   return {
     disconnect() {
+      stopped = true
       ws.close()
     },
     get ws() {
